@@ -15,8 +15,13 @@
 
 ## Règles de travail
 1. **TDD obligatoire** : toujours rédiger les tests unitaires JUnit dans `app/src/test/java/com/example/ghostradar/` AVANT d'implémenter la logique métier correspondante.
-2. **Dépendances** : seule l'ajout de **CameraX** (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`) et **Play Services Location** est pré-approuvé si absent. Demande validation avant toute autre dépendance.
+2. **Dépendances** : l'ajout de **CameraX** (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`), **Play Services Location** et **Gson** (`com.google.code.gson:gson`, sérialisation uniquement) est pré-approuvé si absent. Demande validation avant toute autre dépendance.
 3. **Anti-régression** : exécuter `./gradlew test` après chaque modification de code.
 4. **Traçabilité** : à la fin de chaque tâche validée, ajoute une entrée datée dans `JOURNAL.md` (fichiers créés/modifiés, tests ajoutés, commandes exécutées).
 5. **Zéro supposition sur les ambiguïtés** : si une règle de `SPEC.md` est imprécise, manque de valeurs chiffrées (ex. seuils, durées, tailles) ou offre plusieurs choix d'implémentation, **arrête-toi et pose tes questions numérotées avant d'écrire la moindre ligne de code**.
 6. **Journalisation automatique** : avant de conclure toute réponse où des fichiers ont été créés ou modifiés, ajoute obligatoirement une nouvelle entrée datée en bas de `JOURNAL.md` en respectant strictement le modèle défini en haut de ce fichier.
+
+## Continuité inter-sessions (obligatoire)
+
+- **Début de session** : toujours lire `PLAN.md` et `SPEC.md` en premier pour identifier la tâche en cours sans redemander le contexte.
+- **Fin de chaque intervention** : avant de rendre la main, mettre obligatoirement à jour `PLAN.md` (cocher `- [x]` les sous-tâches terminées, actualiser `Dernière étape validée` et `Prochaine action immédiate`) et ajouter une entrée datée dans `JOURNAL.md` résumant ce qui a été fait, les tests exécutés et ce qu'il reste à faire.
