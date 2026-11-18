@@ -1,0 +1,967 @@
+RAPPORT D'AUDIT — INCOHÉRENCES SUSPECTÉES DU JALON 1
+=====================================================
+
+Projet        : Ghost Radar V1
+Jalon audité  : Jalon 1 — Domaine pur testable (Java pur, sans android.*)
+Date          : 2026-11-18 04:31
+Type          : audit statique de cohérence (lecture du code, des tests et des documents)
+Portée        : app/src/main/java/com/example/ghostradar/domain,
+                app/src/test/java/com/example/ghostradar/domain,
+                SPEC.md, PLAN.md, JOURNAL.md
+Statut        : aucun code de production modifié ; rapport uniquement
+
+AVERTISSEMENT
+-------------
+Ce rapport recense des incohérences SUSPECTÉES. Il ne constitue pas une
+correction et ne prouve pas un échec des tests existants : les tests J1 sont
+verts. Il identifie des cas où le code, les tests ou la documentation ne
+semblent pas dire la même chose, ou des cas limites qui ne sont pas couverts.
+
+Les constats sont classés selon quatre niveaux :
+
+  Élevée    : viole une règle explicite de SPEC.md, ou peut corrompre l'état
+              de jeu dans un cas atteignable.
+  Moyenne   : écart probable, contrat de configuration non tenu, ou cas limite
+              atteignable avec des données pourtant acceptées.
+  Faible    : robustesse ou qualité, impact limité, ou nécessite une
+              configuration/entrée invalide.
+  Observation : choix assumé, dette documentée, ou question de spécification.
+
+La confiance indique si le constat est certain à la lecture, probable, ou
+seulement à confirmer auprès du demandeur.
+
+SYNTHÈSE
+--------
+20 constats retenus :
+
+  Élevée      : 3  (A1, B1, B2)
+  Moyenne     : 8  (A2, A3, A4, B3, B4, C1, D1, D2)
+  Faible      : 8  (A5, B5, B6, B7, B8, C2, D3, D4)
+  Observation : 1  (A6)
+
+Les trois points les plus importants sont :
+  1. A1 — l'appât peut placer le fantôme hors du polygone ou dans un obstacle
+     lorsqu'il arrive exactement sur le joueur.
+  2. A2 — une mine peut déclencher pendant un stun déjà actif et remettre le
+     stun à 10 s ; les anciennes mines déclenchées réapparaissent aussi.
+  3. B1/B2 — aucune validation centralisée de GameConfig et validation très
+     inégale des valeurs NaN/infinies dans le domaine.
+
+Tableau récapitulatif :
+
+  ID   Sévérité   Confiance     Constat
+  ---- ---------- ------------- ----------------------------------------------
+  A1   Élevée     Certaine      Appât : arrivée exacte sans clamp
+  A2   Moyenne    Probable      Mines : re-stun en chaîne et visibilité globale
+  A3   Moyenne    Certaine      Drapeaux de règles sans effet
+  A4   Moyenne    Certaine      BeamProfile non branché, constantes dupliquées
+  A5   Faible     À confirmer   Cooldown : ambiguïté « fin du tracking »
+  A6   Observation Certaine     Règles d'intégration non portées par le domaine
+  B1   Élevée     Certaine      GameConfig sans validation centralisée
+  B2   Élevée     Certaine      Validation NaN/infini incohérente
+  B3   Moyenne    Certaine      GeoPolygon : validation incomplète
+  B4   Moyenne    Probable      PlayArea : topologie des obstacles non validée
+  B5   Faible     Certaine      MapProjection : cas limites non traités
+  B6   Faible     Certaine      GhostSpawner/HauntedZone : cas limites et budgets
+  B7   Faible     Certaine      Inventory.add : dépassement d'int
+  B8   Faible     Certaine      GameInput/FloorProvider : invariant V1 non appliqué
+  C1   Moyenne    Certaine      Multiples sources du rayon terrestre
+  C2   Faible     Certaine      Budgets de retry hors GameConfig
+  D1   Moyenne    Certaine      Test mine : nom trompeur, cas absent
+  D2   Moyenne    Certaine      Test appât : branche d'arrivée exacte non couverte
+  D3   Faible     Certaine      GameConfigTest : invariants non testés
+  D4   Faible     Certaine      PLAN : « J1 complet » vs dettes documentées
+
+Ce qui est cohérent (à ne pas jeter avec le reste)
+--------------------------------------------------
+- Les valeurs par défaut de GameConfig correspondent à SPEC.md §6
+  (GameConfigTest, 6 tests de defaults + surcharges).
+- Le domaine est bien en Java pur : aucun import android.* trouvé.
+- Les tests J1 sont verts et la trace TDD est présente dans JOURNAL.md.
+- Les reports GameEvent/GameEventType/GameListener/Gadget sont explicites
+  dans PLAN.md ; ils ne sont pas comptés comme des oublis cachés.
+- La plupart des constructeurs valident au moins leurs dépendances nulles.
+- Les décisions A1 (clamp de l'appât) et A4 (intégration du faisceau) sont
+  déjà documentées comme dettes dans PLAN.md ; le rapport les chiffre et en
+  montre les conséquences, il ne les présente pas comme des surprises.
+
+================================================================================
+A. RÈGLES DE GAMEPLAY
+================================================================================
+
+A1 — APPÂT : L'ARRIVÉE EXACTE SUR LE JOUEUR CONTOURNE LE CLAMP
+Sévérité : Élevée
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/ai/GhostMovement.java:78-80
+           app/src/main/java/com/example/ghostradar/domain/ai/GhostMovement.java:84
+           SPEC.md:101 (clamp), SPEC.md:89 (obstacles)
+           app/src/test/java/com/example/ghostradar/domain/ai/GhostMovementTest.java:103-114
+
+Constat
+  Dans la branche « appât actif », dès que le pas d'attraction est supérieur ou
+  égal à la distance restante, le code fait :
+
+      ghost.setPosition(playerPosition);
+      return;
+
+  Il n'appelle pas playArea.clamp(...) sur cette position. Le clamp n'est
+  appliqué que dans la branche où le pas ne suffit pas à atteindre le joueur
+  (ligne 84).
+
+Attendu par la spécification
+  SPEC.md:101 : « Ne peut pas faire sortir le fantôme du polygone (clamp). »
+  SPEC.md:89 : le fantôme est contraint à l'intérieur du polygone extérieur et
+  à l'extérieur des obstacles.
+
+Impact soupçonné
+  Si la position du joueur est hors du polygone extérieur, ou à l'intérieur
+  d'un obstacle, le fantôme est téléporté exactement sur cette position
+  invalide. Le cas « joueur dans un obstacle » est particulier : PlayArea
+  considère ce point comme non jouable, mais GameSession ne reçoit qu'un
+  booléen et rien n'empêche un appel direct à GhostMovement avant que la pause
+  ne soit appliquée. Le contrat de GhostMovement n'exige pas que le joueur
+  soit dans la zone jouable.
+  Le test d'arrivée exacte (GhostMovementTest:103-114) utilise un joueur
+  valide, à l'intérieur : il ne couvre donc pas ce cas.
+
+Correction recommandée
+  Clamper la position d'arrivée :
+      ghost.setPosition(playArea.clamp(playerPosition));
+  ou calculer le point d'arrivée puis le clamper. Ajouter deux tests :
+  - joueur juste dehors du polygone extérieur, pas d'appât suffisant pour
+    l'atteindre : le fantôme doit rester sur la frontière ;
+  - joueur dans un obstacle : idem, le fantôme ne doit pas entrer.
+  Si le produit veut un arrêt « au plus près » et non exact, le documenter.
+
+Question Q5 : si le joueur est hors zone ou dans un obstacle, le fantôme doit-il
+s'arrêter sur la frontière (recommandé) ou la position du joueur est-elle
+supposée toujours valide par le contrat ?
+
+
+A2 — MINES : RE-STUN EN CHAÎNE ET VISIBILITÉ DE TOUTES LES MINES DÉCLENCHÉES
+Sévérité : Moyenne (impact potentiellement élevé)
+Confiance : Probable
+Fichiers : app/src/main/java/com/example/ghostradar/domain/item/EctoplasmMine.java:96-121
+           app/src/main/java/com/example/ghostradar/domain/item/EctoplasmMine.java:143-157
+           SPEC.md:92-95
+           app/src/test/java/com/example/ghostradar/domain/item/EctoplasmMineTest.java:107-117
+
+Constat
+  1. update(Ghost) ne vérifie pas si le fantôme est déjà stunné. Il cherche la
+     mine non déclenchée la plus proche dans le rayon, la marque déclenchée et
+     appelle ghost.stun(config.getMineStunDurationS()), ce qui remet le timer
+     à 10 s, même si le fantôme était déjà stunné.
+  2. getVisibleMines(Ghost) ajoute toutes les mines déclenchées dès que
+     ghost.isStunned() est vrai, et pas seulement celle qui a provoqué le stun
+     courant.
+
+Cas atteignable
+  Deux mines valides peuvent être posées à 5,1 m l'une de l'autre
+  (MINE_MIN_DISTANCE_M = 5). Il existe une zone où un point est à moins de 3 m
+  des deux. Le fantôme déclenche la plus proche, puis, au tick suivant, l'autre
+  mine encore dans le rayon le re-stun. La chaîne peut se répéter avec la
+  troisième mine.
+
+Impact soupçonné
+  - Le stun peut dépasser 10 s, voire se cumuler, alors que la spec présente
+    « immobilise le fantôme 10 s » par mine.
+  - Les anciennes mines déclenchées lors de combats précédents réapparaissent
+    sur la carte à chaque nouveau stun, ce qui peut tromper le joueur.
+  - Le test nommé mineIsOneShotAndDoesNotResetStun ne teste pas ce cas : après
+    le premier déclenchement, il ne reste aucune mine active, donc le second
+    update est trivialement faux. Le nom du test suggère une invariante que le
+    code n'applique pas.
+
+Correction recommandée
+  Décider explicitement du comportement :
+  - ignorer les mines tant que le fantôme est stunné
+      if (ghost.isStunned()) return false;
+    (simple, cohérent avec « un stun à la fois ») ; ou
+  - autoriser le déclenchement mais ne pas remettre le timer à zéro, par
+    exemple conserver le maximum du stun restant et de la durée de la mine.
+  Pour la visibilité, suivre la mine qui a provoqué le stun courant (ou
+  supprimer/archiver les mines déclenchées après la fin du stun) au lieu de
+  montrer toutes les mines déclenchées.
+  Ajouter un test avec deux mines à 5,1 m et un fantôme dans la zone commune.
+
+Question Q1 : une mine doit-elle pouvoir se déclencher sur un fantôme déjà
+stunné ? Si oui, le stun doit-il être prolongé, remis à 10 s, ou ignoré ?
+
+
+A3 — DRAPEAUX DE RÈGLES SANS EFFET
+Sévérité : Moyenne
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/config/GameConfig.java:125-131
+           app/src/main/java/com/example/ghostradar/domain/item/EctoplasmMine.java
+           app/src/main/java/com/example/ghostradar/domain/item/Lure.java
+           app/src/main/java/com/example/ghostradar/domain/ai/GhostMovement.java
+           app/src/test/java/com/example/ghostradar/domain/config/GameConfigTest.java:372-378
+
+Constat
+  Plusieurs drapeaux sont exposés et modifiables, mais aucun consommateur ne
+  les lit pour changer le comportement :
+
+  Drapeau                              Valeur par défaut   Comportement réel
+  -----------------------------------  ------------------  ------------------
+  MINE_ONE_SHOT                        true                toujours one-shot
+  MINE_PERSIST_UNTIL_TRIGGERED         true                toujours persistant
+  MINE_ALERT_ON_STUN                   true                update renvoie true
+  LURE_ONE_SHOT                        true                toujours one-shot
+  LURE_AFFECTS_STUNNED                 false               activation toujours
+                                                           refusée si stun
+  LURE_PRIORITY_OVER_FLEE              true                appât toujours
+                                                           prioritaire
+  ADMIN_SPAWN_AT_MAP_POINT             true                spawnAdmin renvoie
+                                                           toujours le point
+  ADMIN_IGNORE_ZONES_AND_PROBABILITY   true                spawnAdmin ignore
+                                                           toujours zones et
+                                                           probabilité
+
+  GameConfigTest:372-378 vérifie que les setters acceptent false/true, mais
+  aucun test ne vérifie que le comportement change. Les getters existent, les
+  champs sont copiés dans GameConfig, puis plus personne ne les utilise.
+
+Impact soupçonné
+  - Un intégrateur qui règle MINE_ONE_SHOT=false ou LURE_ONE_SHOT=false croit
+    modifier le jeu ; rien ne change.
+  - MINE_ALERT_ON_STUN=false ne supprime pas le signal retourné par update.
+  - LURE_AFFECTS_STUNNED=true n'autorise pas l'activation sur un fantôme
+    stunné.
+  - LURE_PRIORITY_OVER_FLEE=false ne rend pas la fuite prioritaire.
+  - ADMIN_IGNORE_ZONES_AND_PROBABILITY=false ne change pas spawnAdmin.
+  Cela contredit l'esprit de SPEC.md:142 (« valeurs modifiables sans changer
+  la logique ») si ces drapeaux sont présentés comme des options de règle.
+  PLAN.md:96 précise que MINE_ONE_SHOT et MINE_PERSIST_UNTIL_TRIGGERED « ne
+  créent pas de variante non spécifiée » : le choix est donc assumé, mais il
+  laisse des options mortes dans l'API.
+
+Correction recommandée
+  Deux options, à trancher :
+  1. Implémenter les variantes false/true, avec des tests de comportement ;
+  2. Marquer explicitement ces drapeaux comme réservés/V2 ou UI-only, les
+     retirer des tests de configuration domaine, et documenter qu'ils n'ont
+     pas d'effet en V1.
+  Ne pas laisser des setters silencieusement inertes.
+
+Question Q2 : quel comportement attendu pour chaque drapeau lorsqu'il est
+positionné à l'opposé de sa valeur par défaut ? Ou faut-il les déclarer
+« réservés » et ne pas les exposer dans le domaine V1 ?
+
+
+A4 — BEAMPROFILE NON BRANCHÉ ET CONSTANTES DE CAPTURE DUPLIQUÉES
+Sévérité : Moyenne
+Confiance : Certaine (dette documentée)
+Fichiers : app/src/main/java/com/example/ghostradar/domain/ai/CaptureController.java:50-58
+           app/src/main/java/com/example/ghostradar/domain/ai/CaptureController.java:121-135
+           app/src/main/java/com/example/ghostradar/domain/item/BeamProfile.java:52-65
+           app/src/main/java/com/example/ghostradar/domain/config/GameConfig.java:802-803
+           PLAN.md:102
+
+Constat
+  CaptureController utilise CAPTURE_REQUIRED_SECONDS et
+  CAPTURE_ANGLE_TOLERANCE_DEG. BeamProfile utilise BEAM_BASE_REQUIRED_SECONDS
+  et BEAM_BASE_ANGLE_TOLERANCE_DEG. Les valeurs par défaut sont identiques
+  (5,0 s et 12°), mais ce sont deux sources de vérité indépendantes.
+  CaptureController n'accepte pas de BeamProfile ; aucun chemin de code ne
+  relie le niveau du faisceau au temps ou à la tolérance de capture.
+
+Impact soupçonné
+  - Une amélioration de faisceau (lootbox) n'a aucun effet sur la capture
+    actuelle : le niveau affiché peut monter sans que le gameplay change.
+  - Modifier BEAM_BASE_REQUIRED_SECONDS sans modifier
+    CAPTURE_REQUIRED_SECONDS crée un niveau 1 incohérent (le profil annonce
+    6 s, la capture réussit à 5 s).
+  - Modifier CAPTURE_ANGLE_TOLERANCE_DEG sans modifier
+    BEAM_BASE_ANGLE_TOLERANCE_DEG crée la même divergence.
+  PLAN.md:102 documente le report de l'intégration : ce n'est pas un oubli
+  caché, mais cela contredit l'affirmation « domaine V1 complet » et doit être
+  planifié avant l'écran de capture.
+
+Correction recommandée
+  - Faire consommer le profil par le contrôleur : passer BeamProfile (ou les
+    valeurs requises/tolérance calculées) à CaptureController.
+  - Dériver CAPTURE_REQUIRED_SECONDS de BEAM_BASE_REQUIRED_SECONDS, ou
+    supprimer l'une des deux paires, ou ajouter une validation d'égalité.
+  - Tester le niveau 5 : 3,0 s requis et 16° de tolérance effectivement
+    utilisés par la capture.
+  - Si l'intégration est volontairement hors J1, la retirer de la définition
+    de « J1 complet » et la mettre dans une étape J2/J3 explicite.
+
+Question Q4 : CaptureController doit-il recevoir BeamProfile dès que la capture
+est intégrée, et CAPTURE_* doit-il devenir un simple alias documenté de
+BEAM_BASE_* ?
+
+
+A5 — COOLDOWN : AMBIGUÏTÉ « FIN DU TRACKING »
+Sévérité : Faible
+Confiance : À confirmer
+Fichiers : app/src/main/java/com/example/ghostradar/domain/game/GameSession.java:164-171
+           app/src/main/java/com/example/ghostradar/domain/game/GameSession.java:192-195
+           app/src/test/java/com/example/ghostradar/domain/game/GameSessionTest.java:122-142
+           SPEC.md:82
+
+Constat
+  Le cooldown de 30 s démarre à la transition TRACKING -> SCREAMER (ou
+  TRACKING -> CAPTURE si le screamer est désactivé), pas à la fin de la
+  capture/récompense. GameSessionTest:122-142 l'affirme explicitement :
+  getCooldownRemainingMs() vaut 30 000 ms dès l'entrée en SCREAMER.
+  Or une capture peut durer jusqu'à 30 s (timeout) ; le cooldown peut donc
+  être épuisé avant même que le joueur termine le combat et ferme la
+  récompense. Après un échec ou un acquittement, startTracking() peut alors
+  réussir immédiatement.
+
+Impact soupçonné
+  Si l'intention est d'espacer les rencontres, le comportement ne le fait pas.
+  Si l'intention est littéralement « après la fin du tracking », le
+  comportement est correct et c'est la spec qui est ambiguë. Le point est
+  d'autant plus visible que la branche screamer et la branche sans screamer
+  démarrent le cooldown à des moments différents (SCREAMER vs CAPTURE), mais
+  dans les deux cas avant la fin de la capture.
+
+Correction recommandée
+  Trancher la sémantique :
+  - cooldown après le tracking : conserver le comportement, le documenter
+    dans SPEC.md et ajouter un test « le cooldown peut expirer pendant la
+    capture » ;
+  - cooldown après la rencontre : déplacer le démarrage dans
+    completeCapture()/failCapture() (et éventuellement acknowledgeReward()),
+    puis tester qu'un nouveau tracking est refusé jusqu'à la fin du cooldown.
+  Dans les deux cas, utiliser nowMs au moment réel de la transition plutôt
+  que screamerDelayDeadlineMs, pour éviter un cooldown déjà entamé si un tick
+  est en retard.
+
+Question Q3 : le cooldown de 30 s doit-il courir à partir de la fin du
+TRACKING (comportement actuel et testé) ou à partir de la fin de la rencontre
+(échec/récompense) ?
+
+
+A6 — RÈGLES D'INTÉGRATION NON PORTÉES PAR LE DOMAINE
+Sévérité : Observation
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/ai/NoiseMonitor.java:18-20
+           app/src/main/java/com/example/ghostradar/domain/item/EctoplasmMine.java:61
+           app/src/main/java/com/example/ghostradar/domain/item/Lure.java:45
+           SPEC.md:113
+
+Constat
+  SPEC.md:113 impose que le bruit et les gadgets n'aient aucun effet pendant
+  la capture (NOISE_AFFECTS_CAPTURE=false, GADGETS_USABLE_DURING_CAPTURE=false).
+  Dans le domaine actuel :
+  - NoiseMonitor ne connaît pas la phase de jeu et documente que l'intégration
+    doit ignorer l'alerte pendant CAPTURE ;
+  - EctoplasmMine.place(...) et Lure.activate(...) ne reçoivent pas GameState
+    et ne peuvent donc pas refuser une utilisation pendant CAPTURE ;
+  - GameSession n'orchestre ni les mines, ni les appâts, ni le bruit, ni la
+    capture.
+  C'est cohérent avec un découpage en composants, mais aucune classe ne porte
+  la règle globale. Si l'intégrateur oublie une garde, la règle est violée
+  sans qu'aucun test domaine ne le signale.
+
+Impact soupçonné
+  Risque d'intégration en J2/J3, pas un bug actuel du domaine. Le rapport le
+  mentionne pour que la garde soit explicitement testée au niveau de
+  l'orchestrateur.
+
+Correction recommandée
+  Ajouter dans PLAN.md un contrat d'intégration : « l'orchestrateur ignore
+  NoiseMonitor.update et refuse les gadgets pendant CAPTURE » ; prévoir un
+  test d'intégration/facade qui vérifie les deux drapeaux. Ne pas ajouter
+  GameState aux objets Mines/Lure si l'orchestrateur suffit.
+
+================================================================================
+B. VALIDATION ET ROBUSTESSE
+================================================================================
+
+B1 — GAMECONFIG SANS VALIDATION CENTRALISÉE
+Sévérité : Élevée
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/config/GameConfig.java:1449-1451
+           app/src/main/java/com/example/ghostradar/domain/config/GameConfig.java:236-237
+           app/src/test/java/com/example/ghostradar/domain/config/GameConfigTest.java
+
+Constat
+  GameConfig.Builder.build() se contente de new GameConfig(this). Le
+  constructeur ne valide que la copie de radarVisibleStates (et lève un NPE
+  si le set est null). Les setters acceptent NaN, l'infini, les négatifs et
+  les combinaisons incohérentes. Chaque consommateur valide ensuite un
+  sous-ensemble différent, parfois aucun.
+
+Exemples de valeurs acceptées et de conséquences :
+  - setEarthRadiusM(0) : EctoplasmMine calcule des distances nulles ; tout
+    fantôme déclenche toute mine dans le rayon (0 < 3).
+  - setScreamerDurationS(-1) : GameSession calcule une fin de screamer dans
+    le passé ; la capture démarre au tick suivant.
+  - setZoneTriggerCooldownS(-1) : le cooldown est négatif, donc considéré
+    comme terminé ; startTracking n'est plus bloqué.
+  - setScreamerDelayMinS(3) + setScreamerDelayMaxS(1) : la plage est
+    inversée, le tirage reste dans [1, 3] mais le contrat min/max est faux.
+  - setCaptureRequiredSeconds(40) avec captureTimeoutS=30 : la capture ne
+    peut jamais réussir, seul le timeout s'applique.
+  - setBeamBaseRequiredSeconds(1) avec beamMinRequiredSeconds=2 : le niveau 1
+    retourne 2 s, pas la valeur de base.
+  - setNoiseThresholdDbfs(NaN) : aboveThreshold est toujours faux, aucune
+    alerte bruit ne peut s'armer.
+  - setRadarVisibleStates(null) : NPE à la construction, sans message clair.
+  - Setters d'enums avec null (MapProjectionType, PityGuaranteeType,
+    UiLanguage, etc.) : champ null accepté, NPE plus tard.
+
+Impact soupçonné
+  Les erreurs de configuration apparaissent loin de leur source, souvent
+  seulement en jeu. Les tests de défaut passent, mais une surcharge invalide
+  peut produire un comportement silencieusement dégradé. Les consommateurs
+  qui valident (EctoplasmMine, Lure, CaptureController, NoiseMonitor) ne
+  couvrent jamais l'ensemble : par exemple EctoplasmMine ne valide pas
+  earthRadiusM.
+
+Correction recommandée
+  Centraliser dans GameConfig.Builder.build() :
+  - valeurs finies et strictement positives/larges selon le champ ;
+  - plages : min <= max (screamer, spawn, zone, force, beam, noise gauge) ;
+  - invariants : captureRequired <= captureTimeout (ou documenter le
+    contraire), beamMin <= beamBase, loot weights >= 0, tickMs > 0,
+    starting counts >= 0, pity >= 0 ;
+  - rejet des enums/sets null ;
+  - messages d'erreur nommant le champ.
+  Garder les validations locales pour les objets construits directement.
+  Ajouter des tests GameConfigTest avec NaN, infini, négatifs, min > max,
+  null, et vérifier que build() échoue.
+
+Question Q7 : GameConfig doit-il être strict sur tous les champs numériques
+(recommandé), ou seulement sur les champs gameplay critiques ?
+
+
+B2 — VALIDATION NaN/INFINI INCOHÉRENTE
+Sévérité : Élevée
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/geo/LatLon.java:15-18
+           app/src/main/java/com/example/ghostradar/domain/game/GameInput.java:19-38
+           app/src/main/java/com/example/ghostradar/domain/geo/GeoMath.java:19-32
+           app/src/main/java/com/example/ghostradar/domain/geo/GeoPolygon.java:31-33
+           app/src/main/java/com/example/ghostradar/domain/geo/PlayArea.java:28-30
+           app/src/main/java/com/example/ghostradar/domain/ai/GhostMovement.java:58-60
+           app/src/main/java/com/example/ghostradar/domain/entity/Ghost.java:54-59
+           app/src/main/java/com/example/ghostradar/domain/entity/Ghost.java:66-69
+           app/src/main/java/com/example/ghostradar/domain/game/GhostSpawner.java:66-70
+           app/src/main/java/com/example/ghostradar/domain/geo/HauntedZone.java:42-47
+
+Constat
+  Les contrôles ne sont pas homogènes :
+  - LatLon accepte NaN, l'infini et des latitudes hors [-90, 90] ;
+  - GameInput accepte floor != 0 et pressureHpa NaN/infini/négatif ;
+  - GeoMath ne valide ni les null, ni les rayons, ni les distances ;
+  - GeoPolygon et PlayArea testent earthRadiusM <= 0, ce qui laisse passer
+    NaN (NaN <= 0 est faux) et l'infini positif ;
+  - GhostMovement.update teste deltaSeconds < 0, ce qui laisse passer NaN et
+    l'infini ;
+  - Ghost.stun teste durationS <= 0, ce qui laisse passer NaN et l'infini ;
+    Ghost.advanceStun teste deltaSeconds < 0, même problème ;
+  - GhostSpawner.trySpawn teste deltaSeconds < 0, même problème ;
+  - HauntedZone.circle teste radiusM <= 0 et earthRadiusM <= 0, même
+    problème avec NaN.
+  À l'inverse, Lure.update, CaptureController.update et NoiseMonitor.update
+  rejettent explicitement NaN (et parfois l'infini) : le domaine n'applique
+  pas la même politique selon la classe.
+
+Conséquences concrètes :
+  - ghost.stun(Double.NaN) met stunRemainingS à NaN et l'état à STUNNED ;
+    advanceStun ne ramène jamais le timer à 0 : le fantôme reste stunné
+    indéfiniment.
+  - ghost.stun(Double.POSITIVE_INFINITY) produit le même blocage.
+  - GhostMovement.update(..., Double.NaN, ...) calcule une destination NaN ;
+    playArea.clamp(NaN) retombe sur le premier sommet du polygone, ce qui
+    téléporte le fantôme.
+  - GhostSpawner.trySpawn(..., Double.NaN, ...) : la probabilité devient NaN,
+    les comparaisons probability <= 0 et random >= probability sont fausses,
+    et le spawn est forcé.
+  - GeoPolygon avec minVertexDistanceM négatif : la comparaison
+    distance < minVertexDistanceM est toujours fausse, donc les doublons ne
+    sont plus rejetés.
+  - PlayArea avec earthRadiusM = NaN : les distances de clamp sont NaN,
+    closest reste null et le fallback renvoie la frontière extérieure.
+
+Impact soupçonné
+  Un seul NaN peut corrompre durablement l'état (stun permanent, position
+  téléportée) ou contourner une règle probabiliste. Les tests existants
+  couvrent quelques rejets (Lure, CaptureController, NoiseMonitor) mais pas
+  les classes ci-dessus.
+
+Correction recommandée
+  Introduire des helpers de validation partagés, par exemple :
+  - requireFinite(name, value) ;
+  - requireNonNegativeFinite / requirePositiveFinite ;
+  - requireLatitude / requireLongitude dans LatLon (ou dans les factories) ;
+  - requireDeltaSeconds(delta).
+  Appliquer la même politique à tous les points d'entrée publics. Pour V1,
+  valider LatLon dans [-90, 90] / [-180, 180] et rejeter les coordonnées non
+  finies. Ajouter des tests NaN/infini pour Ghost, GhostMovement,
+  GhostSpawner, GeoPolygon, PlayArea, HauntedZone, MapProjection.
+
+Question Q7 (suite) : LatLon doit-il rejeter les coordonnées hors plage dès la
+construction, ou seulement les méthodes qui en dépendent ?
+
+
+B3 — GEOPOLYGON : VALIDATION INCOMPLÈTE
+Sévérité : Moyenne
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/geo/GeoPolygon.java:20-48
+           app/src/main/java/com/example/ghostradar/domain/geo/GeoPolygon.java:125-138
+           app/src/main/java/com/example/ghostradar/domain/geo/GeoPolygon.java:140-157
+           app/src/main/java/com/example/ghostradar/domain/geo/GeoPolygon.java:65,83
+
+Constat
+  1. minVertexDistanceM n'est pas validé. Une valeur négative ou NaN désactive
+     pratiquement le contrôle des doublons.
+  2. earthRadiusM n'est pas validé en tant que fini : NaN et l'infini passent
+     le test <= 0, puis contaminent les distances Haversine.
+  3. Les sommets ne sont pas validés : un LatLon(NaN, NaN) est accepté, les
+     orientations et distances deviennent NaN, et les contrôles de doublons
+     et d'auto-intersection ne lèvent rien.
+  4. Un polygone dégénéré de trois points colinéaires dont le point milieu
+     est entre les deux autres passe le contrôle d'auto-intersection (toutes
+     les paires d'arêtes sont adjacentes et ignorées) ; contains renvoie
+     toujours faux.
+  5. nearestVertex(null) et closestPointOnBoundary(null) lèvent une NPE,
+     alors que contains(null) renvoie false : contrat incohérent.
+
+Impact soupçonné
+  Un polygone invalide peut être construit, puis sauvegardé par la
+  cartographie ou utilisé comme zone jouable. Les erreurs se manifestent
+  ensuite dans le clamp, les distances ou le rendu, loin de la construction.
+
+Correction recommandée
+  Valider minVertexDistanceM (fini, > 0), earthRadiusM (fini, > 0), chaque
+  sommet (fini, plage LatLon), et rejeter les polygones d'aire nulle ou
+  colinéaires. Uniformiser le traitement de null (soit IllegalArgumentException
+  partout, soit NPE documentée). Ajouter des tests pour chaque cas.
+
+
+B4 — PLAYAREA : TOPOLOGIE DES OBSTACLES NON VALIDÉE
+Sévérité : Moyenne
+Confiance : Probable
+Fichiers : app/src/main/java/com/example/ghostradar/domain/geo/PlayArea.java:21-42
+           app/src/main/java/com/example/ghostradar/domain/geo/PlayArea.java:73-101
+           SPEC.md:129
+
+Constat
+  PlayArea accepte n'importe quelle liste d'obstacles non nuls :
+  - obstacle extérieur au polygone extérieur ;
+  - obstacle qui chevauche la frontière extérieure ;
+  - obstacles qui se chevauchent entre eux ;
+  - obstacle égal au polygone extérieur.
+  clamp(...) choisit la frontière de l'obstacle le plus proche parmi ceux qui
+  contiennent le point. Si deux obstacles se chevauchent, le point projeté
+  sur la frontière de l'un peut être à l'intérieur de l'autre. Si un obstacle
+  traverse la frontière extérieure, le point projeté peut sortir du polygone
+  extérieur.
+
+Impact soupçonné
+  Le fantôme peut être clampé sur une position encore invalide, puis osciller
+  entre deux projections aux ticks suivants. La carte peut afficher des trous
+  qui ne sont pas réellement des trous. SPEC.md:129 décrit des obstacles
+  « intérieurs » formant des trous, mais ne dit pas que la classe doit le
+  vérifier.
+
+Correction recommandée
+  Valider à la construction :
+  - chaque sommet d'obstacle est strictement à l'intérieur du polygone
+    extérieur (ou au moins l'obstacle entier) ;
+  - les obstacles ne se chevauchent pas ;
+  - l'obstacle n'est pas égal au polygone extérieur ;
+  - même rayon terrestre que la zone (voir C1).
+  Si la validation est garantie par l'UI de cartographie, la documenter et
+  ajouter un test de non-régression. Sinon, implémenter la validation dans
+  PlayArea.
+
+
+B5 — MAPPROJECTION : CAS LIMITES NON TRAITÉS
+Sévérité : Faible
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/geo/MapProjection.java:54-67
+           app/src/main/java/com/example/ghostradar/domain/geo/MapProjection.java:74-84
+           app/src/main/java/com/example/ghostradar/domain/geo/MapProjection.java:86-104
+           app/src/test/java/com/example/ghostradar/domain/geo/MapProjectionTest.java:70-80
+
+Constat
+  - project(LatLon) ne rejette pas les coordonnées non finies : un LatLon NaN
+    produit un MapPoint NaN, alors que unproject rejette les coordonnées non
+    finies. Le contrat n'est pas symétrique.
+  - Le centre de la boîte englobante en longitude est faux si le polygone
+    traverse l'antiméridien (lon 179,9 et -179,9 donnent un centre à 0).
+  - Près des pôles, cos(latitude d'origine) tend vers 0 ; unproject divise
+    par ce facteur et peut produire l'infini.
+  - Aucune validation de latitude hors [-90, 90] n'est faite.
+
+Impact soupçonné
+  Rendu de carte cassé ou coordonnées aberrantes. La zone N7 est loin de ces
+  cas, mais la limitation n'est pas documentée dans la classe ni dans SPEC.md.
+
+Correction recommandée
+  Rejeter les LatLon non finis dans project, documenter « projection locale,
+  pas d'antiméridien, |latitude| < 80° », et ajouter une garde sur l'origine
+  (cos proche de 0) et sur l'étendue en longitude > 180°. Ajouter les tests
+  correspondants.
+
+
+B6 — GHOSTSPAWNER / HAUNTEDZONE : CAS LIMITES ET BUDGETS
+Sévérité : Faible
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/game/GhostSpawner.java:66-70
+           app/src/main/java/com/example/ghostradar/domain/game/GhostSpawner.java:112-119
+           app/src/main/java/com/example/ghostradar/domain/game/GhostSpawner.java:129-149
+           app/src/main/java/com/example/ghostradar/domain/geo/HauntedZone.java:38-48
+           app/src/main/java/com/example/ghostradar/domain/geo/HauntedZone.java:57-103
+           app/src/main/java/com/example/ghostradar/domain/geo/HauntedZone.java:137-166
+
+Constat
+  - trySpawn accepte deltaSeconds NaN/infini (voir B2) ; NaN force le spawn.
+  - GHOST_SPAWN_MAX_DISTANCE_M < GHOST_SPAWN_MIN_DISTANCE_M n'est pas
+    validé ; randomTarget peut produire une distance négative ou une plage
+    inversée.
+  - spawnAdmin renvoie le point fourni sans vérifier la zone jouable ni les
+    obstacles. C'est peut-être voulu pour l'admin, mais SPEC.md:75 ne dit pas
+    que les obstacles et la zone jouable sont ignorés ; seul « zones et
+    probabilité » est explicitement ignoré.
+  - HauntedZone.circle accepte radiusM et earthRadiusM NaN (voir B2).
+  - HauntedZone.randomPolygon accepte des rayons NaN ; minRadiusM <= 0 ne
+    rejette pas NaN, maxRadiusM < minRadiusM ne rejette pas NaN.
+  - randomCenter échoue après maxCenterAttempts en lançant
+    IllegalStateException ; nearestSampledPoint retourne Optional.empty()
+    après maxAttempts. Les budgets maxCenterAttempts et maxAttempts sont des
+    paramètres d'appel, pas des constantes GameConfig (voir C2).
+  - averageCenter est la moyenne des sommets, pas le centroïde de l'aire ;
+    pour un polygone concave, getCenter() peut être hors du polygone. Ce
+    centre n'est pas utilisé par contains, mais peut tromper l'UI.
+
+Impact soupçonné
+  Échec de génération de zone ou de spawn dans des zones jouables étroites ;
+  comportement dépendant du caller ; incohérence avec la règle « toutes les
+  constantes dans GameConfig ».
+
+Correction recommandée
+  Valider les plages min/max et les rayons ; ajouterZONE_CENTER_MAX_ATTEMPTS
+  et SPAWN_MAX_ATTEMPTS à GameConfig (ou documenter ces budgets comme
+  paramètres algorithmiques) ; définir le comportement d'échec (fallback vers
+  le point valide le plus proche, ou erreur explicite) ; documenter le
+  contournement admin (zone jouable/obstacles inclus ou non) ; calculer un
+  vrai centroïde si getCenter() doit représenter l'intérieur.
+
+
+B7 — INVENTORY.ADD : DÉPASSEMENT D'INT
+Sévérité : Faible
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/item/Inventory.java:47-53
+
+Constat
+  counts.put(type, counts.get(type) + quantity) peut dépasser
+  Integer.MAX_VALUE et revenir négatif. consume renvoie alors false et
+  getCount expose une valeur négative.
+
+Impact soupçonné
+  Très improbable en V1 (ajouts unitaires via lootboxes), mais le contrat
+  « aucun maximum » n'est pas protégé.
+
+Correction recommandée
+  Utiliser Math.addExact et lever IllegalArgumentException, ou plafonner à
+  Integer.MAX_VALUE. Ajouter un test de dépassement.
+
+
+B8 — GAMEINPUT / FLOORPROVIDER : INVARIANT V1 NON APPLIQUÉ
+Sévérité : Faible
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/game/GameInput.java:19-38
+           app/src/main/java/com/example/ghostradar/domain/game/GameSnapshot.java:17-27
+           app/src/main/java/com/example/ghostradar/domain/game/FloorProvider.java:20-24
+           SPEC.md:59 et SPEC.md:302-305
+
+Constat
+  En V1, floor doit valoir 0 et pressureHpa peut être null. GameInput accepte
+  n'importe quel int pour floor et n'importe quel Double pour pressureHpa
+  (NaN, infini, négatif). GameSnapshot copie ces valeurs. FloorProvider
+  ignore input.getFloor() et retourne toujours 0. Un snapshot peut donc
+  afficher floor=3 alors que le provider retourne 0 ; pressureHpa peut être
+  NaN dans le snapshot.
+
+Impact soupçonné
+  Contrat V1 implicite, incohérence possible entre l'input, le snapshot et le
+  provider ; préparation V2 confuse.
+
+Correction recommandée
+  Décider où appliquer l'invariant :
+  - GameInput valide floor == 0 en V1 (et pressureHpa fini/positif si non
+    null), ou
+  - FloorProvider lit input.floor et le snapshot devient cohérent.
+  Documenter le choix dans SPEC.md et ajouter les tests.
+
+================================================================================
+C. ARCHITECTURE ET SOURCES DE VÉRITÉ
+================================================================================
+
+C1 — MULTIPLES SOURCES DU RAYON TERRESTRE
+Sévérité : Moyenne
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/config/GameConfig.java
+           app/src/main/java/com/example/ghostradar/domain/geo/PlayArea.java:21
+           app/src/main/java/com/example/ghostradar/domain/geo/GeoPolygon.java:20
+           app/src/main/java/com/example/ghostradar/domain/geo/HauntedZone.java:38
+           app/src/main/java/com/example/ghostradar/domain/ai/GhostMovement.java:72
+           app/src/main/java/com/example/ghostradar/domain/item/EctoplasmMine.java:76-77,107-108
+           app/src/main/java/com/example/ghostradar/domain/game/GhostSpawner.java:117-118,140-141,155-156
+           app/src/main/java/com/example/ghostradar/domain/geo/MapProjection.java:34
+
+Constat
+  Le rayon terrestre peut être fourni indépendamment par GameConfig,
+  PlayArea, chaque GeoPolygon, HauntedZone.circle et les appels à GeoMath.
+  Aucun constructeur ne vérifie que ces valeurs sont égales. Les consommateurs
+  ne sont pas cohérents :
+  - GhostMovement, EctoplasmMine et GhostSpawner utilisent
+    config.getEarthRadiusM() ;
+  - PlayArea.clamp et GeoPolygon.closestPointOnBoundary utilisent le rayon de
+    la zone/du polygone ;
+  - MapProjection utilise le rayon de PlayArea ;
+  - HauntedZone.circle utilise le rayon fourni par l'appelant.
+
+Exemple concret
+  GameConfig.defaults() avec setEarthRadiusM(0), plus une PlayArea construite
+  avec 6 371 000 :
+  - EctoplasmMine calcule toutes les distances Haversine à 0 ; tout fantôme
+    est à 0 m de toute mine et déclenche immédiatement (0 < 3).
+  - GhostMovement calcule destination avec distance / 0, produit NaN, puis
+    clampe sur un sommet.
+  - PlayArea.clamp continue d'utiliser 6 371 000, donc les métriques ne sont
+    pas les mêmes.
+
+Impact soupçonné
+  Distances, seuils de spawn, rayons de mine et clamp peuvent diverger sans
+  erreur visible. Le défaut est cohérent (toutes les valeurs valent
+  6 371 000), mais la configuration permet la divergence.
+
+Correction recommandée
+  Choisir une source unique, de préférence PlayArea.getEarthRadiusM(), et
+  l'injecter dans GhostMovement, EctoplasmMine, GhostSpawner et HauntedZone.
+  À défaut, valider l'égalité des rayons à la construction et lever une
+  IllegalArgumentException. Supprimer les paramètres redondants quand c'est
+  possible. Ajouter un test avec deux rayons différents pour prouver le rejet
+  ou l'alignement.
+
+
+C2 — BUDGETS DE RETRY HORS GAMECONFIG
+Sévérité : Faible
+Confiance : Certaine
+Fichiers : app/src/main/java/com/example/ghostradar/domain/game/GhostSpawner.java:58-59
+           app/src/main/java/com/example/ghostradar/domain/geo/HauntedZone.java:57-61
+           AGENTS.md (toutes les constantes via GameConfig)
+
+Constat
+  GhostSpawner.trySpawn reçoit maxAttempts en paramètre ; HauntedZone
+  .randomPolygon reçoit maxCenterAttempts. Ces budgets ne figurent pas dans
+  GameConfig ni dans SPEC.md §6. Les tests utilisent 100, l'intégration
+  pourra utiliser autre chose. Ce sont des nombres d'algorithme, mais ils
+  influencent le taux d'échec de génération.
+
+Impact soupçonné
+  Comportement différent selon l'appelant ; impossible de régler le budget
+  via la configuration centralisée ; les tests ne couvrent pas les petites
+  valeurs.
+
+Correction recommandée
+  Ajouter ZONE_CENTER_MAX_ATTEMPTS et SPAWN_MAX_ATTEMPTS à GameConfig (avec
+  valeurs par défaut dans SPEC.md §6), ou documenter explicitement que ce sont
+  des paramètres d'algorithme non configurables. Dans les deux cas, tester
+  maxAttempts=1 et l'échec associé.
+
+================================================================================
+D. TESTS ET DOCUMENTATION
+================================================================================
+
+D1 — TEST MINE : NOM TROMPEUR, CAS ABSENT
+Sévérité : Moyenne
+Confiance : Certaine
+Fichiers : app/src/test/java/com/example/ghostradar/domain/item/EctoplasmMineTest.java:107-117
+
+Constat
+  Le test mineIsOneShotAndDoesNotResetStun :
+  - déclenche une mine ;
+  - vérifie qu'il ne reste plus de mine active ;
+  - rappelle update et vérifie que le stun vaut toujours 10 s.
+  Mais après le premier déclenchement, il n'y a plus aucune mine non
+  déclenchée : le second update ne peut rien déclencher. Le test ne prouve
+  donc pas qu'une AUTRE mine ne peut pas remettre le stun à 10 s. Le nom
+  suggère une invariante que le code ne garantit pas (voir A2).
+
+Impact soupçonné
+  Fausse confiance sur la protection contre le re-stun ; A2 n'est pas détecté.
+
+Correction recommandée
+  Ajouter un test avec deux mines à 5,1 m et un fantôme dans la zone commune ;
+  vérifier le comportement décidé en Q1 (pas de second déclenchement, ou
+  prolongation sans remise à zéro, etc.).
+
+
+D2 — TEST APPÂT : BRANCHE D'ARRIVÉE EXACTE NON COUVERTE
+Sévérité : Moyenne
+Confiance : Certaine
+Fichiers : app/src/test/java/com/example/ghostradar/domain/ai/GhostMovementTest.java:103-114
+           app/src/test/java/com/example/ghostradar/domain/item/LureTest.java:145-157
+
+Constat
+  - GhostMovementTest.lureStopsExactlyAtPlayerWithoutOvershoot utilise un
+    joueur à l'intérieur de la zone : il vérifie l'arrivée exacte, mais pas le
+    clamp.
+  - LureTest.lureMovementIsClampedToPlayArea utilise un joueur extérieur
+    lointain (latitude -0,001) : le pas de 1,5 m ne suffit pas à l'atteindre,
+    donc le code passe par la branche destination + clamp, pas par la branche
+    d'arrivée exacte.
+  La branche GhostMovement:78-80 (arrivée exacte sans clamp) n'est donc
+  couverte par aucun test.
+
+Impact soupçonné
+  A1 reste invisible.
+
+Correction recommandée
+  Ajouter un test avec un joueur juste dehors du polygone et un delta tel que
+  lureStep >= distance ; vérifier que la position finale est clampée sur la
+  frontière. Ajouter le même test avec un joueur dans un obstacle.
+
+
+D3 — GAMECONFIGTEST : INVARIANTS NON TESTÉS
+Sévérité : Faible
+Confiance : Certaine
+Fichiers : app/src/test/java/com/example/ghostradar/domain/config/GameConfigTest.java
+
+Constat
+  GameConfigTest couvre les valeurs par défaut, les surcharges et la copie
+  non modifiable de radarVisibleStates. Il ne contient aucun test de rejet :
+  pas de NaN, pas d'infini, pas de négatif, pas de min > max, pas de set
+  null, pas de valeur d'enum null. Les drapeaux false/true sont vérifiés en
+  lecture (lignes 372-378) mais aucun comportement associé n'est testé.
+
+Impact soupçonné
+  B1 et A3 ne sont pas détectés ; les tests donnent l'impression que la
+  configuration est validée.
+
+Correction recommandée
+  Ajouter une section « rejectsInvalidConfiguration » et, pour chaque drapeau
+  de règle, soit un test de comportement, soit un test qui documente
+  explicitement qu'il est réservé et sans effet.
+
+
+D4 — PLAN : « J1 COMPLET » VS DETTES DOCUMENTÉES
+Sévérité : Faible
+Confiance : Certaine
+Fichiers : PLAN.md:5-9, PLAN.md:46, PLAN.md:96, PLAN.md:102
+
+Constat
+  PLAN.md:5-9 annonce « J1 terminé — le domaine pur V1 est complet et
+  testé ». Or :
+  - PLAN.md:102 indique que CaptureController n'utilise pas BeamProfile et
+    que le branchement est reporté ;
+  - PLAN.md:96 indique que MINE_ONE_SHOT et MINE_PERSIST_UNTIL_TRIGGERED ne
+    créent pas de variante (donc les drapeaux sont inertes) ;
+  - GameEvent/GameEventType/GameListener/Gadget sont reportés ;
+  - les vecteurs de force de capture ne sont pas implémentés dans le
+    contrôleur (ils sont annoncés comme composants dédiés) ;
+  - PLAN.md:46 parle d'« événement d'alerte » pour EctoplasmMineTest, alors
+    qu'il n'existe pas de GameEvent : update renvoie seulement un booléen.
+
+Impact soupçonné
+  Le mot « complet » peut faire croire que toutes les règles V1 sont
+  intégrées. Les dettes sont heureusement listées ailleurs, mais la synthèse
+  de reprise est plus optimiste que l'état réel.
+
+Correction recommandée
+  Reformuler en « composants J1 terminés ; intégrations différées : ... »,
+  aligner la description de EctoplasmMineTest sur le booléen retourné, et
+  garder la liste des reports visible dans la reprise rapide.
+
+================================================================================
+E. QUESTIONS À TRANCHER AVANT CORRECTION / J2
+================================================================================
+
+Q1. Mines : une mine peut-elle se déclencher sur un fantôme déjà stunné ?
+    Si oui, le stun doit-il être prolongé, remis à 10 s, ou ignoré ?
+    (Voir A2.)
+
+Q2. Drapeaux : quel comportement attendu pour MINE_ONE_SHOT=false,
+    MINE_PERSIST_UNTIL_TRIGGERED=false, MINE_ALERT_ON_STUN=false,
+    LURE_ONE_SHOT=false, LURE_AFFECTS_STUNNED=true et
+    LURE_PRIORITY_OVER_FLEE=false ? Ou faut-il les déclarer « réservés » et
+    les retirer de l'API domaine V1 ? (Voir A3.)
+
+Q3. Cooldown : les 30 s courent-ils à partir de la fin du TRACKING
+    (comportement actuel et testé) ou à partir de la fin de la rencontre
+    (échec/récompense) ? (Voir A5.)
+
+Q4. Faisceau : CaptureController doit-il consommer BeamProfile dès
+    l'intégration, et CAPTURE_REQUIRED_SECONDS / CAPTURE_ANGLE_TOLERANCE_DEG
+    doivent-ils être dérivés de BEAM_BASE_* ? (Voir A4.)
+
+Q5. Appât : si le joueur est hors zone ou dans un obstacle, le fantôme doit-il
+    s'arrêter sur la frontière (recommandé) ou la position du joueur est-elle
+    supposée toujours valide ? (Voir A1.)
+
+Q6. Admin : spawnAdmin doit-il ignorer uniquement les zones et la probabilité,
+    ou aussi la zone jouable et les obstacles ? (Voir A3/B6.)
+
+Q7. Validation : GameConfig doit-il être strict sur tous les champs
+    numériques, et LatLon doit-il rejeter les coordonnées hors plage dès la
+    construction ? (Voir B1/B2/B8.)
+
+================================================================================
+F. ORDRE DE CORRECTION PROPOSÉ (APRÈS RÉPONSES)
+================================================================================
+
+Priorité 1 — règles de gameplay visibles
+  1. A1 : clamper l'arrivée exacte de l'appât + tests extérieur/obstacle.
+  2. A2 : décider et implémenter le comportement mine/stun + visibilité +
+     test à deux mines.
+  3. A5 : documenter/trancher le cooldown ; si nécessaire, déplacer son
+     démarrage en fin de rencontre.
+
+Priorité 2 — robustesse et configuration
+  4. B1/B2 : validation centralisée GameConfig + helpers finis/plages +
+     tests NaN/infini/négatifs.
+  5. C1 : source unique du rayon terrestre ou validation d'égalité.
+  6. B3/B4 : validation GeoPolygon et topologie PlayArea.
+
+Priorité 3 — intégration et dettes
+  7. A4/Q4 : brancher BeamProfile dans CaptureController avant l'écran de
+     capture ; supprimer ou dériver les constantes dupliquées.
+  8. A3/Q2 : implémenter ou retirer les drapeaux inertes.
+  9. A6 : contrat d'intégration bruit/gadgets pendant CAPTURE.
+
+Priorité 4 — qualité
+  10. B5, B6, B7, B8, C2 : cas limites et constantes.
+  11. D1-D4 : tests manquants et formulation de PLAN.md.
+
+Estimation indicative : les points A1, A2, B1, B2 et C1 sont les seuls qui
+peuvent modifier sensiblement le comportement de jeu. Les autres sont des
+durcissements ou des clarifications.
+
+================================================================================
+G. CONCLUSION
+================================================================================
+
+Le Jalon 1 est vert et globalement cohérent sur les valeurs par défaut : les
+constantes correspondent à SPEC.md, le domaine est pur Java et la trace TDD
+est présente. Les tests existants ne sont pas faux ; ils sont simplement
+muets sur plusieurs cas limites.
+
+Les incohérences les plus sérieuses sont :
+  - A1 : une règle explicite du clamp est contournée par la branche d'arrivée
+    exacte de l'appât ;
+  - A2 : le stun de mine peut être remis à zéro par une autre mine, et
+    toutes les anciennes mines déclenchées réapparaissent pendant un stun ;
+  - B1/B2 : la configuration et les entrées non finies ne sont pas validées
+    de façon homogène, avec des conséquences possibles durables (stun NaN,
+    position téléportée, spawn forcé).
+
+Les points A3, A4, B3, B4, C1, D1 et D2 sont des écarts de contrat, de
+source de vérité ou de couverture qui méritent d'être traités avant de
+considérer la boucle de jeu V1 comme réellement intégrée.
+
+Aucun code de production n'a été modifié par cet audit. Les questions Q1 à Q7
+doivent être tranchées avant toute correction, conformément à la règle du
+projet : une règle imprécise ou non chiffrée doit être clarifiée avant
+d'écrire du code.
+
+Fin du rapport.

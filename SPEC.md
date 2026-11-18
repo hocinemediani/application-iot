@@ -230,6 +230,8 @@ Toutes les valeurs ci-dessous sont des valeurs par défaut, centralisées dans `
 | `BEAM_TIME_REDUCTION_PER_LEVEL_S` | 0,5 | Réduction temps |
 | `BEAM_MIN_REQUIRED_SECONDS` | 2,0 | Temps minimum |
 | `BEAM_BASE_ANGLE_TOLERANCE_DEG` | 12,0 | Tolérance niveau 1 |
+| `BEAM_ANGLE_TOLERANCE_STEP_DEG` | 2,0 | Gain de tolérance par palier |
+| `BEAM_LEVELS_PER_TOLERANCE_STEP` | 2 | Niveaux par palier de tolérance |
 | `IDENTITY_COUNT` | 10 | Fantômedex |
 | `IDENTIFICATION_FREQ_MIN_HZ` | 1 | Mini-jeu |
 | `IDENTIFICATION_FREQ_MAX_HZ` | 10 | Mini-jeu |

@@ -2,10 +2,11 @@
 
 ## Reprise rapide
 
-- **Dernière étape validée** : Cadrage complet des spécifications (51/51 questions résolues).
-- **Prochaine action immédiate** : Écriture des tests unitaires JUnit du Jalon 1 (`domain`) avant toute implémentation.
+- **Dernière étape validée** : `MapProjection` implémenté et validé — origine au centre de la boîte englobante du polygone extérieur, projection ENU en mètres, projection inverse et validation des entrées.
+- **État J1** : **terminé** — le domaine pur V1 est complet et testé. `GameEvent`, `GameEventType`, `GameListener` et `Gadget` sont explicitement reportés hors J1.
+- **Prochaine action immédiate** : Démarrer le Jalon 2 — ajouter CameraX et Play Services Location via le Version Catalog, puis créer les interfaces capteurs dans `com.example.ghostradar.sensors`.
 
-> Détail de l'étape validée : `SPEC.md` intégré, `PLAN.md` créé, section de continuité ajoutée à `AGENTS.md`, entrée de cadrage ajoutée à `JOURNAL.md`. Aucun code métier n'a encore été écrit.
+> Détail : `SPEC.md` intégré, `PLAN.md` créé, `AGENTS.md` actualisé, commande `/jalon1` créée. Le Jalon 1 est terminé : `LatLon`, `GeoMath`, `GeoPolygon`, `PlayArea`, `HauntedZone`, `RandomSource`, `GameState`, `GameConfig`, `GameInput`, `GameSnapshot`, `GameClock`, `GameSession`, `GhostSpawner`, `Ghost`, `GhostState`, `GhostMovement`, `NoiseMonitor`, `CaptureController`, `EctoplasmMine`, `Lure`, `GadgetType`, `Inventory`, `BeamProfile`, `FloorProvider` et `MapProjection` sont implémentés et testés.
 
 ## Règles de suivi
 
@@ -23,68 +24,94 @@
 - [x] Poser les questions de seuils, règles et ambiguïtés avant tout code.
 - [x] Intégrer les 51 réponses et décisions techniques dans `SPEC.md`.
 - [x] Créer `PLAN.md` avec le suivi inter-sessions.
-- [x] Ajouter la section `## Continuité inter-sessions (obligatoire)` dans `AGENTS.md`.
+- [x] Intégrer les règles de continuité inter-sessions dans `AGENTS.md`.
 - [x] Ajouter l'entrée de cadrage dans `JOURNAL.md`.
 - [x] Figer les constantes par défaut dans `SPEC.md` (section 6).
+- [x] Créer la commande OpenCode `/jalon1` (`.opencode/commands/jalon1.md`).
+- [x] Configurer le SDK local et vérifier `test` + `assembleDebug` sur le squelette.
 
 ### Tests JUnit à écrire AVANT le code
 
-- [ ] `GeoMathTest` : Haversine (`R = 6 371 000 m`), bearing, destination, normalisation d'angle, point-dans-polygone, distance point-segment.
-- [ ] `GeoPolygonTest` : validation (≥ 3 sommets, auto-intersection, doublons < 0,5 m), `contains`, point le plus proche.
-- [ ] `PlayAreaTest` : polygone extérieur + obstacles, `contains`, clamp/glissement le long des bords extérieurs et intérieurs.
-- [ ] `HauntedZoneTest` : zone polygonale aléatoire, cercle admin, `contains`.
-- [ ] `GameConfigTest` : valeurs par défaut et surcharge de chaque constante.
-- [ ] `GameInputTest` : `floor = 0`, `pressureHpa` nullable, snapshot immuable.
-- [ ] `GameSessionTest` : transitions `EXPLORATION → TRACKING → SCREAMER → CAPTURE → RECOMPENSE`, cooldown 30 s, pause hors zone.
-- [ ] `GhostSpawnerTest` : probabilité 2 %/s, spawn 15–40 m, spawn admin au point carte.
-- [ ] `GhostMovementTest` : vitesses 1,2 / 2,4 m/s, clamp + glissement extérieur/obstacles, appât, stun.
-- [ ] `NoiseMonitorTest` : seuil -30 dBFS, fenêtre 200 ms, hystérésis 2 s, alerte maintenue 3 s.
-- [ ] `CaptureControllerTest` : distance < 4 m, 5 s cumulées, pause si verrou perdu, tolérance ±12°, timeout 30 s, fantôme ancré, capture pendant stun.
-- [ ] `EctoplasmMineTest` : rayon 3 m, stun 10 s, one-shot, max 3, visibilité carte, événement d'alerte.
-- [ ] `LureTest` : durée 8 s, vitesse 1,5 m/s, priorité, one-shot, sans effet si stun, clamp.
-- [ ] `InventoryTest` : stocks initiaux 1 mine / 1 appât, ajout/consommation.
-- [ ] `BeamProfileTest` : 5 niveaux, réduction de temps, augmentation de tolérance, minimum 2 s.
-- [ ] `FloorProviderTest` : retourne 0 en V1.
+- [x] `GeoMathTest` : Haversine (`R = 6 371 000 m`), bearing, destination, normalisation d'angle, point-dans-polygone, distance point-segment.
+- [x] `GeoPolygonTest` : validation (≥ 3 sommets, auto-intersection, doublons < 0,5 m), `contains`, point le plus proche.
+- [x] `PlayAreaTest` : polygone extérieur + obstacles, `contains`, clamp/glissement le long des bords extérieurs et intérieurs.
+- [x] `HauntedZoneTest` : zone polygonale aléatoire, cercle admin, `contains`.
+- [x] `GameConfigTest` : valeurs par défaut et surcharge de chaque constante.
+- [x] `GameInputTest` : `floor = 0`, `pressureHpa` nullable, snapshot immuable.
+- [x] `GameSessionTest` : transitions `EXPLORATION → TRACKING → SCREAMER → CAPTURE → RECOMPENSE`, cooldown 30 s, pause hors zone.
+- [x] `GhostSpawnerTest` : probabilité 2 %/s, spawn 15–40 m, spawn admin au point carte.
+- [x] `GhostMovementTest` : vitesses 1,2 / 2,4 m/s, clamp + glissement extérieur/obstacles, appât, stun.
+- [x] `NoiseMonitorTest` : seuil -30 dBFS, fenêtre 200 ms, hystérésis 2 s, alerte maintenue 3 s.
+- [x] `CaptureControllerTest` : distance < 4 m, 5 s cumulées, pause si verrou perdu, tolérance ±12°, timeout 30 s, fantôme ancré, capture pendant stun.
+- [x] `EctoplasmMineTest` : rayon 3 m, stun 10 s, one-shot, max 3, visibilité carte, événement d'alerte.
+- [x] `LureTest` : durée 8 s, vitesse 1,5 m/s, priorité, one-shot, sans effet si stun, clamp.
+- [x] `InventoryTest` : stocks initiaux 1 mine / 1 appât, ajout/consommation.
+- [x] `BeamProfileTest` : 5 niveaux, réduction de temps, augmentation de tolérance, minimum 2 s.
+- [x] `FloorProviderTest` : retourne 0 en V1.
+- [x] `MapProjectionTest` : origine, axes ENU, projection inverse, rayon terrestre, validation.
 
 ### Classes à créer dans `com.example.ghostradar.domain`
 
-- [ ] `domain.geo.LatLon`
-- [ ] `domain.geo.GeoMath`
-- [ ] `domain.geo.GeoPolygon`
-- [ ] `domain.geo.MapProjection`
-- [ ] `domain.geo.PlayArea` (polygone extérieur + obstacles)
-- [ ] `domain.geo.HauntedZone` (polygone aléatoire / cercle admin)
-- [ ] `domain.config.GameConfig` (+ `Builder` imbriqué)
-- [ ] `domain.game.GameState`
-- [ ] `domain.game.GameInput` (`int floor = 0`, `Double pressureHpa` nullable)
-- [ ] `domain.game.GameSnapshot`
-- [ ] `domain.game.GameEvent`
-- [ ] `domain.game.GameEventType`
-- [ ] `domain.game.GameListener`
-- [ ] `domain.game.GameSession`
-- [ ] `domain.game.GameClock`
-- [ ] `domain.game.RandomSource`
-- [ ] `domain.game.GhostSpawner`
-- [ ] `domain.game.FloorProvider` (méthode par défaut retournant 0 en V1)
-- [ ] `domain.entity.Ghost`
-- [ ] `domain.entity.GhostState`
-- [ ] `domain.ai.GhostMovement`
-- [ ] `domain.ai.NoiseMonitor`
-- [ ] `domain.ai.CaptureController`
-- [ ] `domain.item.Gadget`
-- [ ] `domain.item.GadgetType`
-- [ ] `domain.item.EctoplasmMine`
-- [ ] `domain.item.Lure`
-- [ ] `domain.item.Inventory`
-- [ ] `domain.item.BeamProfile`
+- [x] `domain.geo.LatLon`
+- [x] `domain.geo.GeoMath`
+- [x] `domain.geo.GeoPolygon`
+- [x] `domain.geo.MapProjection`
+- [x] `domain.geo.PlayArea` (polygone extérieur + obstacles)
+- [x] `domain.geo.HauntedZone` (polygone aléatoire / cercle admin)
+- [x] `domain.config.GameConfig` (+ `Builder` imbriqué)
+- [x] `domain.game.GameState`
+- [x] `domain.game.GameInput` (`int floor = 0`, `Double pressureHpa` nullable)
+- [x] `domain.game.GameSnapshot`
+- [x] `domain.game.GameSession`
+- [x] `domain.game.GameClock`
+- [x] `domain.game.RandomSource` (interface + fabrique déterministe `seeded`)
+- [x] `domain.game.GhostSpawner`
+- [x] `domain.game.FloorProvider` (méthode par défaut retournant 0 en V1)
+- [x] `domain.entity.Ghost`
+- [x] `domain.entity.GhostState`
+- [x] `domain.ai.GhostMovement`
+- [x] `domain.ai.NoiseMonitor`
+- [x] `domain.ai.CaptureController`
+- [x] `domain.item.GadgetType`
+- [x] `domain.item.EctoplasmMine`
+- [x] `domain.item.Lure`
+- [x] `domain.item.Inventory`
+- [x] `domain.item.BeamProfile`
+
+### Reportés hors J1 (non requis pour la clôture)
+
+- `domain.game.GameEvent` — catalogue d'événements à spécifier.
+- `domain.game.GameEventType` — catalogue d'événements à spécifier.
+- `domain.game.GameListener` — catalogue d'événements à spécifier.
+- `domain.item.Gadget` — interface non requise, `GadgetType` et `Inventory` couvrent le besoin V1.
+
+> Décision : `GameEvent`, `GameEventType` et `GameListener` sont reportés à une étape dédiée ; `SPEC.md` ne définit pas leur catalogue. `GameSession` expose pour l'instant des transitions explicites et des getters.
+
+> Décision : `Ghost` est mutable et porte son timer de stun (`stun`, `advanceStun`, `isStunned`) ; `GhostMovement.update(...)` décompte ce timer et gèle le déplacement de tout tick commencé stunné, le mouvement reprenant au tick suivant. L'appât est prioritaire sur l'alerte bruit et s'arrête exactement sur la position du joueur sans dépassement. Le clamp/glissement réutilise `PlayArea.clamp`.
+
+> Décision : `NoiseMonitor` reçoit des blocs RMS normalisés avec leur durée et possède la fenêtre d'énergie de 200 ms, la conversion dBFS et le lissage. La durée d'hystérésis est un délai d'armement continu au-dessus du seuil ; après extinction, ce délai est de nouveau requis. Le monitor ignore la phase de jeu, l'intégration neutralise l'alerte pendant `CAPTURE` via `NOISE_AFFECTS_CAPTURE`.
+
+> Décision : `CaptureController.start(playerPosition, ghost)` exige une distance strictement inférieure à 4 m, puis le contrôleur consomme `(aimErrorDeg, beamActive, deltaSeconds)`. Le verrou est `beamActive && |erreur| <= 12°`, sans hystérésis. Le timeout de 30 s couvre tout le combat, verrou perdu compris ; le succès est évalué avant le timeout. Le fantôme est réancré à chaque tick et le stun ne bloque pas la capture. `BeamProfile` et les vecteurs de force seront intégrés à des étapes dédiées.
+
+> Décision : `EctoplasmMine(GameConfig, PlayArea)` gère le champ de mines et expose des `PlacedMine` imbriquées. Le placement exige une position jouable, moins de `MINE_MAX_ACTIVE` mines non déclenchées et au moins `MINE_MIN_DISTANCE_M` de chacune. Au plus une mine se déclenche par tick (la plus proche à moins de `MINE_TRIGGER_RADIUS_M`) ; `update` renvoie `true` pour signaler l'alerte. Une mine déclenchée reste visible tant que le fantôme est stunné. Les flags `MINE_ONE_SHOT` et `MINE_PERSIST_UNTIL_TRIGGERED` ne créent pas de variante non spécifiée : le comportement reste one-shot et persistant jusqu'au déclenchement.
+
+> Décision : `Lure` ne porte que l'activation, la durée et le one-shot ; `GhostMovement` conserve l'attraction, la priorité et le clamp. L'activation est refusée sans consommation sur un fantôme stunné. Une fois actif, le timer continue pendant un stun ultérieur ; l'objet reste consommé après expiration.
+
+> Décision : `GadgetType` limite les consommables à `ECTOPLASM_MINE` et `LURE` ; l'interface `Gadget` reste reportée. `Inventory(GameConfig)` initialise les stocks depuis `STARTING_MINE_COUNT` / `STARTING_LURE_COUNT`, expose `getCount`, `add(type, quantity > 0)` et `consume(type)`. La consommation à zéro renvoie `false` sans modifier le stock. L'inventaire n'orchestre ni les mines ni les appâts : l'appelant consomme après un placement ou une activation réussie. Aucune capacité maximale ; le faisceau, les lootboxes et le Fantômedex restent hors périmètre.
+
+> Décision : `BeamProfile(GameConfig)` démarre au niveau 1 et expose `getLevel`, `getRequiredSeconds`, `getAngleToleranceDeg` et `upgrade()`. Le temps requis vaut `max(BEAM_MIN_REQUIRED_SECONDS, BEAM_BASE_REQUIRED_SECONDS - BEAM_TIME_REDUCTION_PER_LEVEL_S * (niveau - 1))`. La tolérance vaut `BEAM_BASE_ANGLE_TOLERANCE_DEG + BEAM_ANGLE_TOLERANCE_STEP_DEG * ((niveau - 1) / BEAM_LEVELS_PER_TOLERANCE_STEP)` en division entière ; les constantes `BEAM_ANGLE_TOLERANCE_STEP_DEG = 2,0` et `BEAM_LEVELS_PER_TOLERANCE_STEP = 2` ont été validées et ajoutées à `SPEC.md` §6.4. `upgrade()` renvoie `false` au niveau maximum sans modifier l'état. `CaptureController` continue d'utiliser ses constantes de base ; le branchement effectif du profil sera fait à une étape dédiée.
+
+> Décision : `FloorProvider` est une interface autonome avec une méthode par défaut `int getFloor(GameInput input)` qui valide l'entrée puis retourne `0` en V1. Aucune implémentation séparée n'est créée ; une classe anonyme suffit pour les tests et la V2 surchargera la méthode. `GameSession` et `GameInput` ne sont pas modifiés : `GameInput.floor` reste à 0 en V1.
+
+> Décision : `MapProjection(PlayArea)` centre la projection sur le centre de la boîte englobante du polygone extérieur et reprend le rayon terrestre de la zone jouable. `project(LatLon)` renvoie un `MapPoint` ENU en mètres (`x` est, `y` nord) et `unproject(xM, yM)` fournit l'inverse pour la cartographie. La formule est équirectangulaire locale : `x = R * Δlon * cos(latOrigine)`, `y = R * Δlat`. La couche UI inversera `y` pour `Canvas`. Les coordonnées non finies sont rejetées à la déprojection.
 
 > Contrainte : ne pas créer `WorldMap`, `FloorMap` ni `Floor` en J1. `FloorProvider` est la seule abstraction d'étage.
 
 ### Vérifications J1
 
-- [ ] Aucun import `android.*` dans `domain`.
-- [ ] `./gradlew test` vert.
-- [ ] Mettre à jour `PLAN.md` et `JOURNAL.md`.
+- [x] Aucun import `android.*` dans `domain`.
+- [x] `./gradlew test` vert.
+- [x] Mettre à jour `PLAN.md` et `JOURNAL.md`.
 
 ---
 
