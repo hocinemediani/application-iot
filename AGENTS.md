@@ -1,41 +1,27 @@
 # Ghost Radar - Directives Agent
 
-## Démarrage de session (obligatoire)
+## Commandes de vérification
+- Lancer les tests unitaires : `./gradlew test`
+- Compiler l'APK debug : `./gradlew assembleDebug`
 
-- Lire `PLAN.md` puis `SPEC.md` avant toute action : `PLAN.md` donne l'étape en cours, `SPEC.md` les règles et toutes les valeurs numériques.
-- L'état d'avancement fait foi dans `PLAN.md` ; ne pas se fier à l'arborescence (le domaine peut être vide).
-- Si une règle de `SPEC.md` est imprécise, non chiffrée ou offre plusieurs choix, s'arrêter et poser des questions numérotées avant d'écrire du code.
+## Stack et Architecture
+- **Langage & UI** : Java (Android natif), vues XML classiques (pas de Jetpack Compose) + `Canvas` 2D natif pour le radar et l'éditeur de carte.
+- **Build** : Gradle Kotlin DSL (`build.gradle.kts`) avec Version Catalog (`gradle/libs.versions.toml`).
+- **Package racine** : `com.example.ghostradar`
+- **Séparation stricte** :
+  - `com.example.ghostradar.domain` : toute la logique métier (machine à états, géométrie du polygone, calculs GPS, seuils sonores, physique de capture, lootboxes, gestionnaire d'étages) en **Java pur** (aucun import `android.*`) pour être 100 % testable avec JUnit.
+  - `com.example.ghostradar.sensors` : interfaces pour chaque capteur (GPS, Boussole, Micro, Accéléromètre, et Baromètre prévu pour V2) et leurs implémentations Android séparées.
+  - `com.example.ghostradar.ui` : Activities/Fragments, vues XML et flux vidéo CameraX (`PreviewView`).
 
-## Commandes (Windows / PowerShell)
+## Règles de travail
+1. **TDD obligatoire** : toujours rédiger les tests unitaires JUnit dans `app/src/test/java/com/example/ghostradar/` AVANT d'implémenter la logique métier correspondante.
+2. **Dépendances** : l'ajout de **CameraX** (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`), **Play Services Location** et **Gson** (`com.google.code.gson:gson`, sérialisation uniquement) est pré-approuvé si absent. Demande validation avant toute autre dépendance.
+3. **Anti-régression** : exécuter `./gradlew test` après chaque modification de code.
+4. **Traçabilité** : à la fin de chaque tâche validée, ajoute une entrée datée dans `JOURNAL.md` (fichiers créés/modifiés, tests ajoutés, commandes exécutées).
+5. **Zéro supposition sur les ambiguïtés** : si une règle de `SPEC.md` est imprécise, manque de valeurs chiffrées (ex. seuils, durées, tailles) ou offre plusieurs choix d'implémentation, **arrête-toi et pose tes questions numérotées avant d'écrire la moindre ligne de code**.
+6. **Journalisation automatique** : avant de conclure toute réponse où des fichiers ont été créés ou modifiés, ajoute obligatoirement une nouvelle entrée datée en bas de `JOURNAL.md` en respectant strictement le modèle défini en haut de ce fichier.
 
-- Sur cette machine, `java` n'est pas dans le PATH : préfixer chaque commande Gradle par `$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr';` et utiliser `.\gradlew.bat`, pas `./gradlew`.
-- Tests unitaires : `$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'; .\gradlew.bat test`
-- APK debug : `$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'; .\gradlew.bat assembleDebug`
-- Test unique : `$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'; .\gradlew.bat :app:testDebugUnitTest --tests "com.example.ghostradar.domain.geo.GeoMathTest"`
-- `local.properties` (gitignored, absent après un clone) doit définir `sdk.dir`, ou `ANDROID_HOME` doit être défini ; sinon le build échoue avec `SDK location not found`. SDK local : `C:\Users\ysala\AppData\Local\Android\Sdk`.
-- Le premier build peut installer automatiquement la plateforme Android 37 si les licences sont acceptées.
-- Aucun lint, formatter ou CI personnalisé n'est configuré ; la vérification de référence est `test`, complétée par `assembleDebug` après une modification d'UI.
-- Pour démarrer/reprendre le Jalon 1 : commande OpenCode `/jalon1 [périmètre]` (`.opencode/commands/jalon1.md`).
+## Continuité inter-sessions (obligatoire)
 
-## Stack et build
-
-- Java 11, Android natif, vues XML, `Canvas` 2D ; **pas de Jetpack Compose**, et Kotlin uniquement pour le DSL Gradle.
-- Package racine `com.example.ghostradar` ; Gradle 9.6.0, AGP 9.5.1, `minSdk 26`, `compileSdk/targetSdk 37`.
-- Dépendances via le Version Catalog `gradle/libs.versions.toml` ; ne pas coder les versions en dur. Le DSL AGP 9 est déjà en place (`compileSdk { version = release(37) }`) : ne pas le remplacer par l'ancienne syntaxe.
-- Dépendances pré-approuvées : CameraX, Play Services Location et Gson (sérialisation uniquement). Toute autre dépendance doit être validée avant ajout.
-
-## Architecture et règles non négociables
-
-- `com.example.ghostradar.domain` : logique métier en **Java pur**, aucun import `android.*`, testable en JUnit 4 sur la JVM (pas d'émulateur).
-- `com.example.ghostradar.sensors` : interfaces capteurs et implémentations Android séparées ; `com.example.ghostradar.ui` : Activities/Fragments, XML et CameraX.
-- TDD strict : écrire les tests dans `app/src/test/java/com/example/ghostradar/` **avant** d'implémenter la classe correspondante.
-- Toutes les constantes passent par `GameConfig` (valeurs dans `SPEC.md` §6), aucun nombre magique dispersé. Pas de valeur de `SPEC.md` modifiée sans validation.
-- Tick fixe de 100 ms ; `GameClock` et `RandomSource` sont injectables (seed) pour des tests déterministes.
-- V1 : `GameInput.floor = 0`, `pressureHpa` nullable, `FloorProvider` retourne 0. Ne pas créer `WorldMap`, `FloorMap` ni `Floor`.
-- UI entièrement en français, portrait verrouillé, simulation en pause lorsque l'application passe en arrière-plan.
-- Persistance : Gson uniquement, et `SharedPreferences` côté Android derrière une interface de dépôt définie dans `domain`.
-
-## Traçabilité (obligatoire)
-
-- Lancer `test` après chaque modification de code ; lancer `assembleDebug` après une modification d'UI.
-- Avant de conclure une intervention qui a créé ou modifié des fichiers : cocher les sous-tâches terminées dans `PLAN.md`, actualiser `Dernière étape validée` et `Prochaine action immédiate`, puis ajouter une entrée datée en bas de `JOURNAL.md` au format défini en haut du fichier.
+- **Début de session** : toujours lire `PLAN.md` et `SPEC.md` en premier pour identifier la tâche en cours sans redemander le contexte.
+- **Fin de chaque intervention** : avant de rendre la main, mettre obligatoirement à jour `PLAN.md` (cocher `- [x]` les sous-tâches terminées, actualiser `Dernière étape validée` et `Prochaine action immédiate`) et ajouter une entrée datée dans `JOURNAL.md` résumant ce qui a été fait, les tests exécutés et ce qu'il reste à faire.
