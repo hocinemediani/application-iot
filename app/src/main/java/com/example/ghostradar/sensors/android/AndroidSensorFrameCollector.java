@@ -119,6 +119,10 @@ public final class AndroidSensorFrameCollector {
         return collector.getNoiseGaugeLevel();
     }
 
+    public double getSmoothedNoiseDbfs() {
+        return collector.getSmoothedNoiseDbfs();
+    }
+
     private <T> void startSensor(SensorSource<T> sensor, Consumer<T> consumer) {
         sensor.start(new SensorListener<T>() {
             @Override

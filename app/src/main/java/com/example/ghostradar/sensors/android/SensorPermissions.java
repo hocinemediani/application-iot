@@ -30,15 +30,22 @@ public final class SensorPermissions {
                 Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
     }
 
+    public static boolean hasCameraPermission(Context context) {
+        return ContextCompat.checkSelfPermission(context,
+                Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+    }
+
     public static boolean hasRequiredPermissions(Context context) {
-        return hasLocationPermission(context) && hasAudioPermission(context);
+        return hasLocationPermission(context) && hasAudioPermission(context)
+                && hasCameraPermission(context);
     }
 
     public static String[] requiredPermissions() {
         return new String[]{
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.RECORD_AUDIO
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.CAMERA
         };
     }
 

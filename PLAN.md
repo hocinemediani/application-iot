@@ -2,9 +2,9 @@
 
 ## Reprise rapide
 
-- **Dernière étape validée** : J2 — dépendances CameraX 1.7.0 et Play Services Location 21.4.0 ajoutées, permissions déclarées, quatre capteurs Android (`AndroidGpsSensor`, `AndroidCompassSensor`, `AndroidMicrophoneSensor`, `AndroidAccelerometerSensor`), collecteur `AndroidSensorFrameCollector` au tick de 100 ms, permissions runtime et branchement lifecycle des capteurs (`onResume`/`onPause`, retry après accord runtime) ; 292 tests verts, APK debug compilé.
+- **Dernière étape validée** : J2 — dépendances CameraX 1.7.0 et Play Services Location 21.4.0 ajoutées, permissions déclarées (dont `CAMERA`), quatre capteurs Android (`AndroidGpsSensor`, `AndroidCompassSensor`, `AndroidMicrophoneSensor`, `AndroidAccelerometerSensor`), collecteur `AndroidSensorFrameCollector` au tick de 100 ms, permissions runtime et branchement lifecycle des capteurs (`onResume`/`onPause`, retry après accord runtime), `PreviewView` caméra plein écran lié/délié dans `MainActivity`, filtre bleu/IR `#003366` alpha 0,15 en TDD, hooks de glitch 500 ms (bandes `#66CCFF`, contrôleur pur + overlay Canvas) en TDD, HUD `● REC` clignotant 500/500 ms et horloge locale `HH:MM:SS` temps réel en TDD, jauge de bruit verticale 10 segments (-60 à 0 dBFS, jaune/orange/rouge) alimentée par le `NoiseMonitor` du collecteur en TDD ; 342 tests verts, APK debug compilé.
 - **État J1** : **terminé** — le domaine pur V1 est complet et testé. `GameEvent`, `GameEventType`, `GameListener` et `Gadget` sont explicitement reportés hors J1.
-- **Prochaine action immédiate** : Intégrer `CameraX PreviewView` en plein écran, le filtre bleu/IR, les hooks de glitch et le HUD `● REC`, puis brancher le collecteur de frames dans la boucle de jeu visuelle.
+- **Prochaine action immédiate** : Verrouiller le portrait et gérer la pause en arrière-plan, puis brancher le collecteur de frames dans la boucle de jeu visuelle et appeler les hooks de glitch depuis cette boucle.
 
 > Détail : `SPEC.md` intégré, `PLAN.md` créé, `AGENTS.md` actualisé, commande `/jalon1` créée. Le Jalon 1 est terminé : `LatLon`, `GeoMath`, `GeoPolygon`, `PlayArea`, `HauntedZone`, `RandomSource`, `GameState`, `GameConfig`, `GameInput`, `GameSnapshot`, `GameClock`, `GameSession`, `GhostSpawner`, `Ghost`, `GhostState`, `GhostMovement`, `NoiseMonitor`, `CaptureController`, `EctoplasmMine`, `Lure`, `GadgetType`, `Inventory`, `BeamProfile`, `FloorProvider` et `MapProjection` sont implémentés et testés.
 
@@ -137,12 +137,20 @@
 
 ### Caméra & HUD
 
-- [ ] Intégrer `CameraX PreviewView` en plein écran.
-- [ ] Ajouter le filtre bleu/IR (alpha 0,15).
-- [ ] Ajouter les hooks de glitch (500 ms) à l'apparition et à la capture.
-- [ ] HUD `● REC` clignotant + horloge `HH:MM:SS`.
-- [ ] Jauge de bruit discrète (-60 à 0 dBFS).
+- [x] Intégrer `CameraX PreviewView` en plein écran.
+- [x] Ajouter le filtre bleu/IR (alpha 0,15).
+- [x] Ajouter les hooks de glitch (500 ms) à l'apparition et à la capture.
+- [x] HUD `● REC` clignotant + horloge `HH:MM:SS`.
+- [x] Jauge de bruit discrète (-60 à 0 dBFS).
 - [ ] Verrouiller le portrait et gérer la pause en arrière-plan.
+
+> Décision : le filtre bleu/IR utilise `BLUE_IR_RGB = 0x003366`, un overlay `View` XML plein écran et la classe pure `CameraFilterStyle` (ARGB calculé depuis `GameConfig.getCameraBlueFilterAlpha()`), écrite et testée en JUnit avant le branchement UI.
+
+> Décision : les glitches utilisent des hooks UI explicites (`triggerSpawn`/`triggerCapture`, sans modifier `GameSession` ni introduire `GameEvent`), 6 bandes horizontales `#66CCFF` (hauteur 4–12 px, opacité 0,35, refresh 50 ms) pilotées par la classe pure `CameraGlitchController` testée en JUnit avant le branchement `GlitchOverlayView`.
+
+> Décision : le HUD est en haut-gauche (marge et texte 16), fond noir `0x99000000`, `● REC` rouge `#FF3333` clignotant 500 ms on/off et horloge blanche `#FFFFFF` affichant l’heure locale du téléphone (`System.currentTimeMillis()` + `ZoneId.systemDefault()`) rafraîchie toutes les secondes ; `HudStyle`, `HudClockFormatter` et `RecBlinkController` sont des classes pures JUnit écrites avant le branchement `MainActivity`.
+
+> Décision : la jauge de bruit est verticale à droite (marge 16 dp), centrée verticalement, 10 segments 6×10 dp espacés de 2 dp remplis de bas en haut ; le niveau vient du `NoiseMonitor` déjà intégré au `SensorFrameCollector` (`getNoiseGaugeLevel()` / `getSmoothedNoiseDbfs()`), sans doublon de monitor ; couleurs vides `0x66FFFFFF`, jaune `0xFFFFD54F` sous -40 dBFS, orange `0xFFFF9800` de -40 au seuil `-30`, rouge `0xFFFF3333` au-dessus ; icône micro vectorielle blanche 16×16 dp à 8 dp sous la jauge ; `NoiseGaugeStyle` et `NoiseGaugeFormatter` sont des classes pures JUnit écrites avant le branchement `NoiseGaugeView`.
 
 ### Vérifications J2
 
