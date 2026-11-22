@@ -2,9 +2,9 @@
 
 ## Reprise rapide
 
-- **Dernière étape validée** : J2 — contrats d'interface capteurs (`SensorSource`, `GpsSensor`, `CompassSensor`, `MicrophoneSensor`, `AccelerometerSensor`), modèles d'échantillons, filtres purs (`GpsFixFilter`, `CompassHeadingFilter`, `RmsMeter`, `TiltCalculator`) et `SensorFrame` écrits en TDD ; 279 tests verts, APK debug compilé, aucune implémentation Android.
+- **Dernière étape validée** : J2 — dépendances CameraX 1.7.0 et Play Services Location 21.4.0 ajoutées, permissions déclarées, quatre capteurs Android (`AndroidGpsSensor`, `AndroidCompassSensor`, `AndroidMicrophoneSensor`, `AndroidAccelerometerSensor`), collecteur `AndroidSensorFrameCollector` au tick de 100 ms, permissions runtime et branchement lifecycle des capteurs (`onResume`/`onPause`, retry après accord runtime) ; 292 tests verts, APK debug compilé.
 - **État J1** : **terminé** — le domaine pur V1 est complet et testé. `GameEvent`, `GameEventType`, `GameListener` et `Gadget` sont explicitement reportés hors J1.
-- **Prochaine action immédiate** : Ajouter CameraX et Play Services Location via le Version Catalog, puis implémenter les classes Android des quatre capteurs, les permissions runtime et le branchement de `SensorFrame` au tick de 100 ms.
+- **Prochaine action immédiate** : Intégrer `CameraX PreviewView` en plein écran, le filtre bleu/IR, les hooks de glitch et le HUD `● REC`, puis brancher le collecteur de frames dans la boucle de jeu visuelle.
 
 > Détail : `SPEC.md` intégré, `PLAN.md` créé, `AGENTS.md` actualisé, commande `/jalon1` créée. Le Jalon 1 est terminé : `LatLon`, `GeoMath`, `GeoPolygon`, `PlayArea`, `HauntedZone`, `RandomSource`, `GameState`, `GameConfig`, `GameInput`, `GameSnapshot`, `GameClock`, `GameSession`, `GhostSpawner`, `Ghost`, `GhostState`, `GhostMovement`, `NoiseMonitor`, `CaptureController`, `EctoplasmMine`, `Lure`, `GadgetType`, `Inventory`, `BeamProfile`, `FloorProvider` et `MapProjection` sont implémentés et testés.
 
@@ -119,19 +119,19 @@
 
 ### Dépendances & capteurs
 
-- [ ] Ajouter CameraX (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`) — dépendance pré-approuvée.
-- [ ] Ajouter Play Services Location — dépendance pré-approuvée.
+- [x] Ajouter CameraX (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`) — dépendance pré-approuvée.
+- [x] Ajouter Play Services Location — dépendance pré-approuvée.
 - [x] Créer les interfaces capteurs dans `com.example.ghostradar.sensors`.
 - [x] Écrire les tests des contrats et des filtres purs (phase rouge puis verte).
 - [x] Créer les modèles `GpsSample`, `CompassSample`, `NoiseSample`, `AccelerometerSample`, `TiltSample` et `CompassAccuracy`.
 - [x] Créer `GpsFixFilter`, `CompassHeadingFilter`, `RmsMeter`, `TiltCalculator` et `SensorFrame`.
-- [ ] Implémenter `GpsSensor` avec `FusedLocationProviderClient` (accuracy ≤ 20 m, 1 Hz, 1 m).
-- [ ] Implémenter `CompassSensor` (`TYPE_ROTATION_VECTOR`, fallback magnétomètre, low-pass 0,15).
-- [ ] Implémenter `MicrophoneSensor` (`AudioRecord` 44,1 kHz mono PCM16, blocs 20 ms, RMS → dBFS).
-- [ ] Implémenter `AccelerometerSensor` (`TYPE_ACCELEROMETER`, 50 Hz).
-- [ ] Gérer les permissions runtime (localisation, micro).
-- [x] Créer `SensorFrame` immuable (GPS, boussole, bruit, tilt) et le tester.
-- [ ] Brancher `SensorFrame` au tick fixe de 100 ms dans la boucle de jeu (`GameInput` reste floor/pressure).
+- [x] Implémenter `AndroidGpsSensor` avec `FusedLocationProviderClient` (accuracy ≤ 20 m, 1 Hz, 1 m).
+- [x] Implémenter `AndroidCompassSensor` (`TYPE_ROTATION_VECTOR`, fallback magnétomètre, low-pass 0,15).
+- [x] Implémenter `AndroidMicrophoneSensor` (`AudioRecord` 44,1 kHz mono PCM16, blocs 20 ms, RMS → dBFS).
+- [x] Implémenter `AndroidAccelerometerSensor` (`TYPE_ACCELEROMETER`, 50 Hz).
+- [x] Gérer les permissions runtime (localisation, micro).
+- [x] Créer `SensorFrame` immuable (GPS, boussole, bruit, accéléromètre, tilt) et le tester.
+- [x] Brancher `SensorFrame` au tick fixe de 100 ms via `AndroidSensorFrameCollector` (`GameInput` reste floor/pressure).
 
 > Décision : `SensorFrame` est séparé de `GameInput`, qui reste limité à `floor` et `pressureHpa`. Les filtres purs vivent dans `domain.sensors`, les contrats dans `sensors`, et les implémentations Android seront placées dans un sous-paquet séparé.
 

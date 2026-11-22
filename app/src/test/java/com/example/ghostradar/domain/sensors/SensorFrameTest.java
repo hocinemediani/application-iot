@@ -15,6 +15,7 @@ public class SensorFrameTest {
     private final CompassSample compass = new CompassSample(90.0, CompassAccuracy.HIGH, 2L);
     private final NoiseSample noise = new NoiseSample(0.5, 20.0, 3L);
     private final AccelerometerSample accelerometer = new AccelerometerSample(0.0, 9.81, 0.0, 4L);
+    private final TiltSample tilt = new TiltSample(10.0, -5.0, 10.0, -5.0);
 
     @Test
     public void emptyFrameHasNoSamples() {
@@ -23,21 +24,57 @@ public class SensorFrameTest {
         assertFalse(SensorFrame.EMPTY.hasCompass());
         assertFalse(SensorFrame.EMPTY.hasNoise());
         assertFalse(SensorFrame.EMPTY.hasAccelerometer());
+        assertFalse(SensorFrame.EMPTY.hasTilt());
         assertNull(SensorFrame.EMPTY.getGps());
         assertNull(SensorFrame.EMPTY.getCompass());
         assertNull(SensorFrame.EMPTY.getNoise());
         assertNull(SensorFrame.EMPTY.getAccelerometer());
+        assertNull(SensorFrame.EMPTY.getTilt());
     }
 
     @Test
     public void storesAllSamples() {
-        SensorFrame frame = new SensorFrame(gps, compass, noise, accelerometer);
+        SensorFrame frame = new SensorFrame(gps, compass, noise, accelerometer, tilt);
 
         assertFalse(frame.isEmpty());
         assertSame(gps, frame.getGps());
         assertSame(compass, frame.getCompass());
         assertSame(noise, frame.getNoise());
         assertSame(accelerometer, frame.getAccelerometer());
+        assertSame(tilt, frame.getTilt());
+    }
+
+    @Test
+    public void legacyConstructorLeavesTiltEmpty() {
+        SensorFrame frame = new SensorFrame(gps, compass, noise, accelerometer);
+
+        assertFalse(frame.hasTilt());
+        assertNull(frame.getTilt());
+    }
+
+    @Test
+    public void withTiltReturnsNewFrameAndKeepsOtherSamples() {
+        SensorFrame original = new SensorFrame(gps, compass, noise, accelerometer);
+        TiltSample updated = new TiltSample(20.0, 15.0, 20.0, 15.0);
+
+        SensorFrame frame = original.withTilt(updated);
+
+        assertNull(original.getTilt());
+        assertSame(gps, frame.getGps());
+        assertSame(compass, frame.getCompass());
+        assertSame(noise, frame.getNoise());
+        assertSame(accelerometer, frame.getAccelerometer());
+        assertSame(updated, frame.getTilt());
+    }
+
+    @Test
+    public void withOtherSamplesPreservesTilt() {
+        SensorFrame original = new SensorFrame(gps, compass, noise, accelerometer, tilt);
+
+        SensorFrame frame = original.withGps(null);
+
+        assertNull(frame.getGps());
+        assertSame(tilt, frame.getTilt());
     }
 
     @Test
