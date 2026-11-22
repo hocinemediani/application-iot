@@ -59,6 +59,16 @@ Décisions générales :
    - En V1, l'altitude est ignorée : `GameInput.floor = 0` et `FloorProvider` retourne 0.
    - Les valeurs seront recalibrées lorsque la V2 sera développée et que les mesures réelles seront disponibles ; elles restent des constantes configurables.
 
+### Contrats d'interface capteurs (Jalon 2)
+
+- **Architecture** : les quatre capteurs V1 exposent un contrat push commun `SensorSource<T>` avec `start(listener)`, `stop()` et `isRunning()` ; `BaseSensorSource` porte le cycle de vie pur. Les interfaces `GpsSensor`, `CompassSensor`, `MicrophoneSensor` et `AccelerometerSensor` vivent dans `com.example.ghostradar.sensors` ; leurs implémentations Android seront séparées et n'introduiront aucune dépendance Android dans `domain`.
+- **Agrégation** : `SensorFrame` immuable agrège le dernier `GpsSample`, `CompassSample`, `NoiseSample` et `AccelerometerSample`. La boucle de jeu le lit au tick de 100 ms ; `GameInput` reste limité à `floor` et `pressureHpa`.
+- **GPS** : un fix est accepté si ses coordonnées sont finies et dans les plages géographiques, si `accuracy <= GPS_ACCURACY_MAX_M`, si `GPS_UPDATE_INTERVAL_MS` s'est écoulé **et** si `GPS_MIN_DISTANCE_M` a été parcouru depuis le dernier fix accepté. Un fix rejeté ne met pas à jour l'état du filtre.
+- **Boussole** : quand `COMPASS_IGNORE_UNRELIABLE = true`, seules les précisions `MEDIUM` et `HIGH` sont acceptées (`LOW`, `UNRELIABLE` et `NO_CONTACT` sont ignorés). Le premier échantillon est pris directement ; les suivants appliquent `COMPASS_LOW_PASS_ALPHA` sur l'écart angulaire le plus court, avec normalisation `[0, 360)`.
+- **Microphone** : `AudioRecord` en 44 100 Hz, mono PCM 16 bits, source `MIC`, blocs de 20 ms (882 frames). Chaque bloc produit un RMS normalisé `[0, 1]` et une durée, consommés par `NoiseMonitor` qui conserve la fenêtre de 200 ms et le lissage. Ces valeurs matérielles sont des constantes de `MicrophoneSensor`, pas des réglages de gameplay.
+- **Accéléromètre** : téléphone tenu verticalement en portrait ; `roll = atan2(x, y)`, `pitch = atan2(-z, y)`. La deadzone `TILT_DEADZONE_DEG` met l'angle à zéro sans rescale, puis `TILT_GAIN` est appliqué et le résultat est borné par `TILT_CLAMP_DEG`.
+- **Permissions** : l'Activity demande les permissions runtime ; chaque capteur vérifie leur présence au démarrage et signale `PERMISSION_DENIED` via `onUnavailable`. Les capteurs sont arrêtés en `onPause` et repris en `onResume`.
+
 ## 3. Interface Utilisateur (Écran Principal & Navigation)
 
 - **Fond** : flux caméra arrière plein écran + calque filtre bleu/infrarouge.
