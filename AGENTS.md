@@ -20,6 +20,7 @@
 4. **Traçabilité** : à la fin de chaque tâche validée, ajoute une entrée datée dans `JOURNAL.md` (fichiers créés/modifiés, tests ajoutés, commandes exécutées).
 5. **Zéro supposition sur les ambiguïtés** : si une règle de `SPEC.md` est imprécise, manque de valeurs chiffrées (ex. seuils, durées, tailles) ou offre plusieurs choix d'implémentation, **arrête-toi et pose tes questions numérotées avant d'écrire la moindre ligne de code**.
 6. **Journalisation automatique** : avant de conclure toute réponse où des fichiers ont été créés ou modifiés, ajoute obligatoirement une nouvelle entrée datée en bas de `JOURNAL.md` en respectant strictement le modèle défini en haut de ce fichier.
+7. **Documentation du code** : à chaque nouvelle classe, intègre obligatoirement des commentaires sur l'utilité de la classe, des commentaires par méthodes, et des commentaires dans le code aux endroits ou ils sont nécessaires strictement.
 
 ## Continuité inter-sessions (obligatoire)
 
