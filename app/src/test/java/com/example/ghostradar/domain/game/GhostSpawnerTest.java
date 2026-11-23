@@ -109,6 +109,39 @@ public class GhostSpawnerTest {
     }
 
     @Test
+    public void retryBudgetOfOneFailsWhereTwoAttemptsSucceed() {
+        // Bande étroite au nord : la cible et le premier point de fallback
+        // sortent de la zone jouable, le second y rentre.
+        PlayArea area = new PlayArea(square(0.0, 0.0, 0.0002, 0.0002),
+                Collections.emptyList(), EARTH_RADIUS_M);
+        LatLon player = new LatLon(0.00019, 0.0001);
+        HauntedZone zone = HauntedZone.circle(player, 50.0, EARTH_RADIUS_M);
+        GameConfig config = new GameConfig.Builder()
+                .setZoneTriggerProbabilityPerS(1.0)
+                .build();
+        // probabilité, cible (azimut, distance), puis 2 points de fallback
+        // (fraction de rayon, azimut) : 0,01 -> 5 m au nord puis au sud.
+        RandomSource random = new ScriptedRandomSource(
+                0.0, 0.0, 0.0,
+                0.01, 0.0,
+                0.01, 0.5);
+        GhostSpawner spawner = new GhostSpawner(config, area, random);
+
+        assertFalse(spawner.trySpawn(player, zone, 1.0, 1).isPresent());
+
+        GhostSpawner withMoreBudget = new GhostSpawner(config, area,
+                new ScriptedRandomSource(
+                        0.0, 0.0, 0.0,
+                        0.01, 0.0,
+                        0.01, 0.5));
+        Optional<LatLon> spawn = withMoreBudget.trySpawn(player, zone, 1.0, 2);
+
+        assertTrue(spawn.isPresent());
+        assertTrue(area.contains(spawn.get()));
+        assertTrue(zone.contains(spawn.get()));
+    }
+
+    @Test
     public void returnsEmptyWhenNoValidPointExists() {
         PlayArea area = new PlayArea(
                 square(-0.01, -0.01, 0.01, 0.01),
@@ -127,13 +160,28 @@ public class GhostSpawnerTest {
     }
 
     @Test
-    public void adminSpawnReturnsRequestedPointWithoutValidation() {
-        PlayArea area = playArea();
+    public void adminSpawnIgnoresZonesAndProbabilityButRespectsPlayArea() {
+        GhostSpawner spawner = new GhostSpawner(
+                GameConfig.defaults(), playArea(), new ScriptedRandomSource());
+        LatLon adminPoint = new LatLon(0.005, 0.005);
+
+        // Aucune valeur aléatoire n'est consommée : ni zone, ni probabilité.
+        assertSame(adminPoint, spawner.spawnAdmin(adminPoint));
+    }
+
+    @Test
+    public void adminSpawnRejectsPointsOutsidePlayAreaOrInsideObstacle() {
+        PlayArea area = new PlayArea(
+                square(-0.01, -0.01, 0.01, 0.01),
+                Collections.singletonList(square(-0.001, -0.001, 0.001, 0.001)),
+                EARTH_RADIUS_M);
         GhostSpawner spawner = new GhostSpawner(
                 GameConfig.defaults(), area, new ScriptedRandomSource());
-        LatLon adminPoint = new LatLon(48.0, 2.0);
 
-        assertSame(adminPoint, spawner.spawnAdmin(adminPoint));
+        assertThrows(IllegalArgumentException.class,
+                () -> spawner.spawnAdmin(new LatLon(48.0, 2.0)));
+        assertThrows(IllegalArgumentException.class,
+                () -> spawner.spawnAdmin(new LatLon(0.0, 0.0)));
     }
 
     @Test
@@ -151,6 +199,10 @@ public class GhostSpawnerTest {
         assertThrows(IllegalArgumentException.class,
                 () -> spawner.trySpawn(PLAYER, zone, -0.1, MAX_ATTEMPTS));
         assertThrows(IllegalArgumentException.class,
+                () -> spawner.trySpawn(PLAYER, zone, Double.NaN, MAX_ATTEMPTS));
+        assertThrows(IllegalArgumentException.class,
+                () -> spawner.trySpawn(PLAYER, zone, Double.POSITIVE_INFINITY, MAX_ATTEMPTS));
+        assertThrows(IllegalArgumentException.class,
                 () -> spawner.trySpawn(PLAYER, zone, 1.0, 0));
         assertThrows(IllegalArgumentException.class,
                 () -> spawner.spawnAdmin(null));
@@ -160,6 +212,13 @@ public class GhostSpawnerTest {
                 () -> new GhostSpawner(config, null, new ScriptedRandomSource()));
         assertThrows(IllegalArgumentException.class,
                 () -> new GhostSpawner(config, area, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GhostSpawner(new GameConfig.Builder()
+                        .setEarthRadiusM(6_400_000.0).build(), area,
+                        new ScriptedRandomSource()));
+        HauntedZone divergentZone = HauntedZone.circle(PLAYER, 100.0, 6_400_000.0);
+        assertThrows(IllegalArgumentException.class,
+                () -> spawner.trySpawn(PLAYER, divergentZone, 1.0, MAX_ATTEMPTS));
     }
 
     private static LatLon spawnPoint(PlayArea area, HauntedZone zone,

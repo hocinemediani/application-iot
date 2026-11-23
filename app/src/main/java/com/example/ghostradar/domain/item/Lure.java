@@ -15,6 +15,11 @@ import com.example.ghostradar.domain.entity.Ghost;
  * <p>L'activation est refusée sur un fantôme stunné et ne consomme alors pas
  * l'objet. Une fois actif, le timer continue même si le fantôme est stunné :
  * l'effet est simplement neutralisé par le gel du déplacement.</p>
+ *
+ * <p>Les flags {@code LURE_ONE_SHOT}, {@code LURE_PRIORITY_OVER_FLEE} et
+ * {@code LURE_AFFECTS_STUNNED} sont documentés sans variante de comportement en
+ * V1 : l'appât reste one-shot, prioritaire sur la fuite et sans effet sur un
+ * fantôme stunné, quelle que soit leur valeur.</p>
  */
 public final class Lure {
 

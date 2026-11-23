@@ -114,6 +114,20 @@ public class GhostMovementTest {
     }
 
     @Test
+    public void lureArrivalClampsPlayerOutsidePlayArea() {
+        PlayArea area = playArea();
+        GhostMovement movement = new GhostMovement(GameConfig.defaults(), area);
+        Ghost ghost = new Ghost(new LatLon(0.000005, 0.005));
+        LatLon playerOutside = new LatLon(-0.001, 0.005);
+
+        movement.update(ghost, playerOutside, 100.0, false, true);
+
+        assertEquals(area.clamp(playerOutside), ghost.getPosition());
+        assertEquals(0.0, ghost.getPosition().getLatitude(), 1e-9);
+        assertEquals(0.005, ghost.getPosition().getLongitude(), 1e-9);
+    }
+
+    @Test
     public void stunFreezesMovementAndConsumesTimer() {
         PlayArea area = playArea();
         GhostMovement movement = new GhostMovement(GameConfig.defaults(), area);
@@ -222,11 +236,18 @@ public class GhostMovementTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new GhostMovement(GameConfig.defaults(), null));
         assertThrows(IllegalArgumentException.class,
+                () -> new GhostMovement(new GameConfig.Builder()
+                        .setEarthRadiusM(6_400_000.0).build(), area));
+        assertThrows(IllegalArgumentException.class,
                 () -> movement.update(null, PLAYER_EAST, 1.0, false, false));
         assertThrows(IllegalArgumentException.class,
                 () -> movement.update(ghost, null, 1.0, false, false));
         assertThrows(IllegalArgumentException.class,
                 () -> movement.update(ghost, PLAYER_EAST, -0.1, false, false));
+        assertThrows(IllegalArgumentException.class,
+                () -> movement.update(ghost, PLAYER_EAST, Double.NaN, false, false));
+        assertThrows(IllegalArgumentException.class,
+                () -> movement.update(ghost, PLAYER_EAST, Double.POSITIVE_INFINITY, false, false));
         assertThrows(IllegalArgumentException.class, () -> new Ghost(null));
         assertThrows(IllegalArgumentException.class, () -> ghost.setPosition(null));
         assertThrows(IllegalArgumentException.class, () -> ghost.stun(-1.0));

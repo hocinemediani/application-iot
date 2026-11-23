@@ -4,6 +4,7 @@ import com.example.ghostradar.domain.config.GameConfig;
 import com.example.ghostradar.domain.entity.Ghost;
 import com.example.ghostradar.domain.geo.GeoMath;
 import com.example.ghostradar.domain.geo.LatLon;
+import com.example.ghostradar.domain.item.BeamProfile;
 
 /**
  * Combat de capture : verrouillage du faisceau sur un fantôme ancré.
@@ -18,8 +19,14 @@ import com.example.ghostradar.domain.geo.LatLon;
  *
  * <p>Le fantôme reste ancré à sa position de départ, même s'il est stunné : le
  * stun n'empêche pas la capture. La génération des vecteurs de force du
- * fantôme et l'intégration du niveau de faisceau sont laissées aux composants
- * dédiés ; ce contrôleur consomme l'erreur angulaire qui en résulte.</p>
+ * fantôme est laissée au composant dédié ; ce contrôleur consomme l'erreur
+ * angulaire qui en résulte.</p>
+ *
+ * <p>Le profil de faisceau est injecté via {@link #CaptureController(GameConfig,
+ * BeamProfile)} (le constructeur à un argument utilise un profil niveau 1).
+ * Le temps requis et la tolérance sont <em>figés au début de chaque combat</em>
+ * : une amélioration obtenue entre deux combats est prise en compte au combat
+ * suivant, mais n'affecte pas un combat déjà entamé.</p>
  */
 public final class CaptureController {
 
@@ -33,16 +40,28 @@ public final class CaptureController {
     }
 
     private final GameConfig config;
+    private final BeamProfile beam;
 
     private CaptureStatus status = CaptureStatus.IDLE;
     private Ghost ghost;
     private LatLon anchoredPosition;
     private double progressS;
     private double elapsedS;
+    private double requiredSeconds;
+    private double angleToleranceDeg;
 
+    /** Construit un contrôleur avec un faisceau au niveau 1. */
     public CaptureController(GameConfig config) {
+        this(config, new BeamProfile(config));
+    }
+
+    /** Construit un contrôleur avec le profil de faisceau courant. */
+    public CaptureController(GameConfig config, BeamProfile beam) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
+        }
+        if (beam == null) {
+            throw new IllegalArgumentException("beam must not be null");
         }
         if (config.getCaptureDistanceM() <= 0.0) {
             throw new IllegalArgumentException("captureDistanceM must be positive");
@@ -60,6 +79,7 @@ public final class CaptureController {
             throw new IllegalArgumentException("captureProgressDecayPerS must not be negative");
         }
         this.config = config;
+        this.beam = beam;
     }
 
     /**
@@ -89,6 +109,9 @@ public final class CaptureController {
         this.anchoredPosition = ghost.getPosition();
         this.progressS = 0.0;
         this.elapsedS = 0.0;
+        // Figer le profil pour ce combat (Q4).
+        this.requiredSeconds = beam.getRequiredSeconds();
+        this.angleToleranceDeg = beam.getAngleToleranceDeg();
         this.status = CaptureStatus.IN_PROGRESS;
         anchorGhost();
         return true;
@@ -118,8 +141,7 @@ public final class CaptureController {
 
         elapsedS += deltaSeconds;
 
-        boolean locked = beamActive
-                && Math.abs(aimErrorDeg) <= config.getCaptureAngleToleranceDeg();
+        boolean locked = beamActive && Math.abs(aimErrorDeg) <= angleToleranceDeg;
         if (locked) {
             progressS += deltaSeconds;
         } else if (!config.isCapturePauseOnLockLost()) {
@@ -129,8 +151,8 @@ public final class CaptureController {
 
         anchorGhost();
 
-        if (progressS + TIME_EPSILON_S >= config.getCaptureRequiredSeconds()) {
-            progressS = config.getCaptureRequiredSeconds();
+        if (progressS + TIME_EPSILON_S >= requiredSeconds) {
+            progressS = requiredSeconds;
             status = CaptureStatus.SUCCESS;
         } else if (elapsedS + TIME_EPSILON_S >= config.getCaptureTimeoutS()) {
             status = CaptureStatus.FAILED;

@@ -86,6 +86,44 @@ public class MapProjectionTest {
     }
 
     @Test
+    public void rejectsNearPoleOrigin() {
+        // cos(85°) est proche de 0 : unproject diviserait par un facteur
+        // quasi nul. La limite documentée est |latitude| < 80°.
+        assertThrows(IllegalArgumentException.class,
+                () -> new MapProjection(playArea(85.0, 0.0, 85.01, 0.01, EARTH_RADIUS_M)));
+    }
+
+    @Test
+    public void rejectsAntimeridianCrossingOuterPolygon() {
+        // 179,9° et -179,9° : le centre naïf de la boîte englobante serait 0°
+        // alors que le polygone est autour de 180°.
+        GeoPolygon polygon = new GeoPolygon(Arrays.asList(
+                new LatLon(0.0, 179.9),
+                new LatLon(0.0, -179.9),
+                new LatLon(0.01, -179.9),
+                new LatLon(0.01, 179.9)
+        ), 3, MIN_VERTEX_DISTANCE_M, EARTH_RADIUS_M);
+        PlayArea area = new PlayArea(polygon, Collections.emptyList(), EARTH_RADIUS_M);
+
+        assertThrows(IllegalArgumentException.class, () -> new MapProjection(area));
+    }
+
+    @Test
+    public void projectInheritsFiniteCoordinateGuaranteeFromLatLon() {
+        // B5 : project() ne peut pas recevoir de LatLon non fini puisque
+        // LatLon valide ses coordonnées à la construction (B2).
+        assertThrows(IllegalArgumentException.class, () -> new LatLon(Double.NaN, 0.0));
+        assertThrows(IllegalArgumentException.class,
+                () -> new LatLon(0.0, Double.POSITIVE_INFINITY));
+
+        MapProjection projection = new MapProjection(playArea(EARTH_RADIUS_M));
+        MapProjection.MapPoint point = projection.project(new LatLon(0.006, 0.004));
+
+        assertTrue(Double.isFinite(point.getXM()));
+        assertTrue(Double.isFinite(point.getYM()));
+    }
+
+    @Test
     public void rejectsInvalidArguments() {
         assertThrows(IllegalArgumentException.class, () -> new MapProjection(null));
 
@@ -98,17 +136,24 @@ public class MapProjectionTest {
     }
 
     private static PlayArea playArea(double earthRadiusM) {
-        return new PlayArea(square(0.0, 0.0, 0.01, 0.01),
+        return playArea(0.0, 0.0, 0.01, 0.01, earthRadiusM);
+    }
+
+    private static PlayArea playArea(double minLat, double minLon,
+                                     double maxLat, double maxLon, double earthRadiusM) {
+        // Le polygone doit utiliser le même rayon que la zone jouable : C1
+        // refuse toute divergence entre les sources de rayon terrestre.
+        return new PlayArea(square(minLat, minLon, maxLat, maxLon, earthRadiusM),
                 Collections.emptyList(), earthRadiusM);
     }
 
     private static GeoPolygon square(double minLat, double minLon,
-                                     double maxLat, double maxLon) {
+                                     double maxLat, double maxLon, double earthRadiusM) {
         return new GeoPolygon(Arrays.asList(
                 new LatLon(minLat, minLon),
                 new LatLon(minLat, maxLon),
                 new LatLon(maxLat, maxLon),
                 new LatLon(maxLat, minLon)
-        ), 3, MIN_VERTEX_DISTANCE_M, EARTH_RADIUS_M);
+        ), 3, MIN_VERTEX_DISTANCE_M, earthRadiusM);
     }
 }

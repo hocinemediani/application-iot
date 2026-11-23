@@ -1,5 +1,7 @@
 package com.example.ghostradar.domain.geo;
 
+import com.example.ghostradar.domain.Validation;
+
 import java.util.Objects;
 
 /**
@@ -12,9 +14,15 @@ public final class LatLon {
     private final double latitude;
     private final double longitude;
 
+    /**
+     * Construit un point géographique valide.
+     *
+     * @throws IllegalArgumentException si une coordonnée est NaN, infinie ou
+     *         hors de {@code [-90, 90]} / {@code [-180, 180]}
+     */
     public LatLon(double latitude, double longitude) {
-        this.latitude = latitude;
-        this.longitude = longitude;
+        this.latitude = Validation.requireLatitude(latitude);
+        this.longitude = Validation.requireLongitude(longitude);
     }
 
     public double getLatitude() {

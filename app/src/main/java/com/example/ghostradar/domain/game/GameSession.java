@@ -11,6 +11,14 @@ import com.example.ghostradar.domain.config.GameConfig;
  * revanche le délai du screamer, sa durée, le cooldown de 30 s et la pause
  * hors zone jouable.</p>
  *
+ * <p>Sémantique du cooldown (Q3, SPEC.md §2) : il démarre à la <em>fin du
+ * TRACKING</em>, c'est-à-dire à l'heure réelle de la transition vers
+ * {@link GameState#SCREAMER} (ou vers {@link GameState#CAPTURE} si le screamer
+ * est désactivé), mesurée avec {@link GameClock#nowMs()}. Il n'est pas
+ * redémarré à la fin de la capture : comme une capture peut durer jusqu'à
+ * 30 s, il peut être déjà écoulé quand le joueur termine le combat ou ferme
+ * la récompense, et un nouveau tracking est alors immédiatement autorisé.</p>
+ *
  * <p>Les méthodes de transition renvoient {@code false} lorsque l'action est
  * refusée (mauvais état, cooldown actif ou session en pause) et laissent
  * l'état inchangé.</p>
@@ -26,6 +34,7 @@ public final class GameSession {
 
     private GameState state = GameState.EXPLORATION;
     private boolean paused;
+    private boolean lifecyclePaused;
     private boolean playerInsidePlayArea = true;
     private boolean captureRangeReached;
     private long pausedAtMs;
@@ -53,7 +62,40 @@ public final class GameSession {
     }
 
     public boolean isPaused() {
-        return paused;
+        return paused || lifecyclePaused;
+    }
+
+    /**
+     * Gèle la session lorsque l'application passe en arrière-plan.
+     *
+     * <p>La pause lifecycle est indépendante de la pause hors zone : les deux
+     * peuvent se chevaucher, et les timers ne sont décalés qu'à la reprise
+     * effective de la session.</p>
+     */
+    public void pauseForLifecycle() {
+        if (lifecyclePaused) {
+            return;
+        }
+        lifecyclePaused = true;
+        if (!paused) {
+            pausedAtMs = clock.nowMs();
+        }
+    }
+
+    /**
+     * Reprend la session au retour au premier plan.
+     *
+     * <p>Si la session reste en pause pour une autre raison, par exemple une
+     * sortie de zone, les timers restent gelés jusqu'à la reprise complète.</p>
+     */
+    public void resumeFromLifecycle() {
+        if (!lifecyclePaused) {
+            return;
+        }
+        lifecyclePaused = false;
+        if (!paused) {
+            shiftDeadlines(clock.nowMs() - pausedAtMs);
+        }
     }
 
     /**
@@ -63,7 +105,7 @@ public final class GameSession {
      *         état, ou si le cooldown de zone est encore actif
      */
     public boolean startTracking() {
-        if (paused || state != GameState.EXPLORATION || getCooldownRemainingMs() > 0L) {
+        if (isPaused() || state != GameState.EXPLORATION || getCooldownRemainingMs() > 0L) {
             return false;
         }
         state = GameState.TRACKING;
@@ -80,7 +122,7 @@ public final class GameSession {
      * capture démarre immédiatement.</p>
      */
     public boolean onGhostInCaptureRange() {
-        if (paused || state != GameState.TRACKING || captureRangeReached) {
+        if (isPaused() || state != GameState.TRACKING || captureRangeReached) {
             return false;
         }
         long nowMs = clock.nowMs();
@@ -98,7 +140,7 @@ public final class GameSession {
      * {@link GameState#RECOMPENSE}.
      */
     public boolean completeCapture() {
-        if (paused || state != GameState.CAPTURE) {
+        if (isPaused() || state != GameState.CAPTURE) {
             return false;
         }
         state = GameState.RECOMPENSE;
@@ -110,7 +152,7 @@ public final class GameSession {
      * {@link GameState#EXPLORATION}.
      */
     public boolean failCapture() {
-        if (paused || state != GameState.CAPTURE) {
+        if (isPaused() || state != GameState.CAPTURE) {
             return false;
         }
         state = GameState.EXPLORATION;
@@ -122,7 +164,7 @@ public final class GameSession {
      * {@link GameState#EXPLORATION}.
      */
     public boolean acknowledgeReward() {
-        if (paused || state != GameState.RECOMPENSE) {
+        if (isPaused() || state != GameState.RECOMPENSE) {
             return false;
         }
         state = GameState.EXPLORATION;
@@ -156,7 +198,7 @@ public final class GameSession {
      * <p>À appeler à chaque tick de 100 ms. Ne fait rien pendant une pause.</p>
      */
     public void update() {
-        if (paused) {
+        if (isPaused()) {
             return;
         }
         long nowMs = clock.nowMs();
@@ -165,7 +207,11 @@ public final class GameSession {
                 && nowMs >= screamerDelayDeadlineMs) {
             captureRangeReached = false;
             state = GameState.SCREAMER;
-            cooldownEndMs = screamerDelayDeadlineMs + cooldownMs();
+            // Ancrage sur l'heure réelle de transition (Q3) : un tick tardif
+            // ne doit pas entamer le cooldown de 30 s.
+            cooldownEndMs = nowMs + cooldownMs();
+            // La fin du screamer reste ancrée sur son échéance théorique :
+            // seul le cooldown est concerné par l'arbitrage Q3.
             screamerEndMs = screamerDelayDeadlineMs + screamerDurationMs();
             screamerDelayDeadlineMs = NO_DEADLINE;
         }
@@ -185,7 +231,7 @@ public final class GameSession {
         if (cooldownEndMs == NO_DEADLINE) {
             return 0L;
         }
-        long nowMs = paused ? pausedAtMs : clock.nowMs();
+        long nowMs = isPaused() ? pausedAtMs : clock.nowMs();
         return Math.max(0L, cooldownEndMs - nowMs);
     }
 
@@ -199,19 +245,25 @@ public final class GameSession {
             return;
         }
         paused = true;
-        pausedAtMs = clock.nowMs();
+        if (!lifecyclePaused) {
+            pausedAtMs = clock.nowMs();
+        }
     }
 
     private void resume() {
         if (!paused) {
             return;
         }
-        long nowMs = clock.nowMs();
-        long pausedDurationMs = nowMs - pausedAtMs;
+        paused = false;
+        if (!lifecyclePaused) {
+            shiftDeadlines(clock.nowMs() - pausedAtMs);
+        }
+    }
+
+    private void shiftDeadlines(long pausedDurationMs) {
         cooldownEndMs = shift(cooldownEndMs, pausedDurationMs);
         screamerDelayDeadlineMs = shift(screamerDelayDeadlineMs, pausedDurationMs);
         screamerEndMs = shift(screamerEndMs, pausedDurationMs);
-        paused = false;
     }
 
     private static long shift(long deadlineMs, long deltaMs) {

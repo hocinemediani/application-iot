@@ -43,13 +43,20 @@ public final class Inventory {
      * Ajoute des unités à un type de gadget.
      *
      * @param quantity nombre strictement positif d'unités à ajouter
+     * @throws IllegalArgumentException si la quantité n'est pas positive ou
+     *         si le total dépasserait {@code Integer.MAX_VALUE} (le stock est
+     *         alors laissé inchangé)
      */
     public void add(GadgetType type, int quantity) {
         requireType(type);
         if (quantity <= 0) {
             throw new IllegalArgumentException("quantity must be positive");
         }
-        counts.put(type, counts.get(type) + quantity);
+        try {
+            counts.put(type, Math.addExact(counts.get(type), quantity));
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("gadget count overflow for " + type, overflow);
+        }
     }
 
     /**

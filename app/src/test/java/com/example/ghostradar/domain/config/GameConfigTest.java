@@ -242,7 +242,10 @@ public class GameConfigTest {
         builder.setLureDurationS(10.0);
         builder.setLureSpeedMps(2.0);
         builder.setCaptureDistanceM(5.0);
+        // Les alias CAPTURE_* doivent rester égaux à la base du faisceau (Q4).
+        builder.setBeamBaseRequiredSeconds(6.0);
         builder.setCaptureRequiredSeconds(6.0);
+        builder.setBeamBaseAngleToleranceDeg(15.0);
         builder.setCaptureAngleToleranceDeg(15.0);
         builder.setCaptureTimeoutS(35.0);
         builder.setCaptureProgressDecayPerS(0.1);
@@ -419,6 +422,93 @@ public class GameConfigTest {
         assertEquals(GameConfig.SoundSource.SYSTEM_DEFAULT, config.getSoundSource());
         assertFalse(config.isVibrationEnabled());
         assertFalse(config.isAssetsOptional());
+    }
+
+    @Test
+    public void buildRejectsNonFiniteNumericOverrides() {
+        assertRejected("earthRadiusM", b -> b.setEarthRadiusM(Double.NaN));
+        assertRejected("earthRadiusM", b -> b.setEarthRadiusM(Double.POSITIVE_INFINITY));
+        assertRejected("noiseThresholdDbfs", b -> b.setNoiseThresholdDbfs(Double.NaN));
+        assertRejected("screamerDurationS", b -> b.setScreamerDurationS(Double.NEGATIVE_INFINITY));
+    }
+
+    @Test
+    public void buildRejectsNonPositiveAndNegativeOverrides() {
+        assertRejected("earthRadiusM", b -> b.setEarthRadiusM(0.0));
+        assertRejected("screamerDurationS", b -> b.setScreamerDurationS(-1.0));
+        assertRejected("zoneTriggerCooldownS", b -> b.setZoneTriggerCooldownS(-1.0));
+        assertRejected("tickMs", b -> b.setTickMs(0));
+        assertRejected("tickMs", b -> b.setTickMs(Integer.MAX_VALUE + 1));
+        assertRejected("minPolygonVertices", b -> b.setMinPolygonVertices(0));
+        assertRejected("cameraGlitchDurationMs", b -> b.setCameraGlitchDurationMs(0));
+        assertRejected("startingMineCount", b -> b.setStartingMineCount(-1));
+        assertRejected("lootMineWeight", b -> b.setLootMineWeight(-1.0));
+        assertRejected("pityMissesBeforeGuarantee", b -> b.setPityMissesBeforeGuarantee(-1));
+    }
+
+    @Test
+    public void buildRejectsInvertedRanges() {
+        assertRejected("screamerDelayMaxS",
+                b -> b.setScreamerDelayMinS(3.0).setScreamerDelayMaxS(1.0));
+        assertRejected("zoneRadiusMaxM",
+                b -> b.setZoneRadiusMinM(40.0).setZoneRadiusMaxM(30.0));
+        assertRejected("ghostSpawnMaxDistanceM",
+                b -> b.setGhostSpawnMinDistanceM(50.0).setGhostSpawnMaxDistanceM(40.0));
+        assertRejected("noiseGaugeMaxDbfs",
+                b -> b.setNoiseGaugeMinDbfs(-10.0).setNoiseGaugeMaxDbfs(-60.0));
+        assertRejected("captureForceChangeMaxS",
+                b -> b.setCaptureForceChangeMinS(2.0).setCaptureForceChangeMaxS(1.0));
+        assertRejected("identificationFreqMaxHz",
+                b -> b.setIdentificationFreqMinHz(20.0).setIdentificationFreqMaxHz(10.0));
+    }
+
+    @Test
+    public void buildRejectsInconsistentInvariants() {
+        assertRejected("captureRequiredSeconds",
+                b -> b.setCaptureRequiredSeconds(40.0).setCaptureTimeoutS(30.0));
+        assertRejected("beamMinRequiredSeconds",
+                b -> b.setBeamBaseRequiredSeconds(1.0).setBeamMinRequiredSeconds(2.0));
+    }
+
+    @Test
+    public void captureAliasesAreDerivedFromBeamBase() {
+        GameConfig config = new GameConfig.Builder()
+                .setBeamBaseRequiredSeconds(6.0)
+                .setBeamBaseAngleToleranceDeg(15.0)
+                .build();
+
+        assertEquals(6.0, config.getCaptureRequiredSeconds(), 0.0);
+        assertEquals(15.0, config.getCaptureAngleToleranceDeg(), 0.0);
+    }
+
+    @Test
+    public void captureAliasesRejectDivergentExplicitOverrides() {
+        assertRejected("captureRequiredSeconds", b -> b
+                .setBeamBaseRequiredSeconds(5.0)
+                .setCaptureRequiredSeconds(6.0));
+        assertRejected("captureAngleToleranceDeg", b -> b
+                .setBeamBaseAngleToleranceDeg(12.0)
+                .setCaptureAngleToleranceDeg(15.0));
+    }
+
+    @Test
+    public void buildRejectsNullCollectionsAndEnums() {
+        assertRejected("radarVisibleStates", b -> b.setRadarVisibleStates(null));
+        assertRejected("mapProjection", b -> b.setMapProjection(null));
+        assertRejected("pityGuaranteeType", b -> b.setPityGuaranteeType(null));
+        assertRejected("radarOrientation", b -> b.setRadarOrientation(null));
+        assertRejected("uiLanguage", b -> b.setUiLanguage(null));
+        assertRejected("orientation", b -> b.setOrientation(null));
+        assertRejected("soundSource", b -> b.setSoundSource(null));
+    }
+
+    private static void assertRejected(String expectedField,
+                                       java.util.function.Consumer<GameConfig.Builder> override) {
+        GameConfig.Builder builder = new GameConfig.Builder();
+        override.accept(builder);
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, builder::build);
+        assertTrue("Message must name the invalid field: " + error.getMessage(),
+                error.getMessage().contains(expectedField));
     }
 
     @Test

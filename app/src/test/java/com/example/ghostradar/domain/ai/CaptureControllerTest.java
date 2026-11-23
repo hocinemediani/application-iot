@@ -6,6 +6,7 @@ import com.example.ghostradar.domain.entity.Ghost;
 import com.example.ghostradar.domain.entity.GhostState;
 import com.example.ghostradar.domain.geo.GeoMath;
 import com.example.ghostradar.domain.geo.LatLon;
+import com.example.ghostradar.domain.item.BeamProfile;
 
 import org.junit.Test;
 
@@ -170,7 +171,7 @@ public class CaptureControllerTest {
     @Test
     public void successWinsWhenProgressAndTimeoutReachedOnSameTick() {
         GameConfig config = new GameConfig.Builder()
-                .setCaptureRequiredSeconds(2.0)
+                .setBeamBaseRequiredSeconds(2.0)
                 .setCaptureTimeoutS(2.0)
                 .build();
         CaptureController controller = new CaptureController(config);
@@ -178,6 +179,49 @@ public class CaptureControllerTest {
 
         feed(controller, 0.0, true, 2.0);
 
+        assertEquals(CaptureStatus.SUCCESS, controller.getStatus());
+    }
+
+    @Test
+    public void beamProfileLevelFiveRequiresThreeSeconds() {
+        BeamProfile beam = maxedBeam(GameConfig.defaults());
+        CaptureController controller = new CaptureController(GameConfig.defaults(), beam);
+        assertTrue(controller.start(PLAYER, ghostAt(3.0)));
+
+        feed(controller, 0.0, true, 2.9);
+        assertEquals(CaptureStatus.IN_PROGRESS, controller.getStatus());
+
+        feed(controller, 0.0, true, 0.1);
+        assertEquals(CaptureStatus.SUCCESS, controller.getStatus());
+    }
+
+    @Test
+    public void beamProfileLevelFiveUsesSixteenDegreeTolerance() {
+        GameConfig config = GameConfig.defaults();
+        BeamProfile beam = maxedBeam(config);
+        CaptureController controller = new CaptureController(config, beam);
+        assertTrue(controller.start(PLAYER, ghostAt(3.0)));
+
+        // 15° dépasserait la tolérance de 12° du niveau 1 mais pas celle de 16°.
+        feed(controller, 15.0, true, 3.0);
+
+        assertEquals(CaptureStatus.SUCCESS, controller.getStatus());
+    }
+
+    @Test
+    public void beamUpgradeAfterStartDoesNotChangeCurrentCapture() {
+        GameConfig config = new GameConfig.Builder()
+                .setBeamMaxLevel(2)
+                .build();
+        BeamProfile beam = new BeamProfile(config);
+        CaptureController controller = new CaptureController(config, beam);
+        assertTrue(controller.start(PLAYER, ghostAt(3.0)));
+
+        assertTrue(beam.upgrade());
+        feed(controller, 0.0, true, 4.5);
+        assertEquals(CaptureStatus.IN_PROGRESS, controller.getStatus());
+
+        feed(controller, 0.0, true, 0.5);
         assertEquals(CaptureStatus.SUCCESS, controller.getStatus());
     }
 
@@ -233,6 +277,8 @@ public class CaptureControllerTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new CaptureController(null));
         assertThrows(IllegalArgumentException.class,
+                () -> new CaptureController(GameConfig.defaults(), null));
+        assertThrows(IllegalArgumentException.class,
                 () -> controller.start(null, ghost));
         assertThrows(IllegalArgumentException.class,
                 () -> controller.start(PLAYER, null));
@@ -266,6 +312,14 @@ public class CaptureControllerTest {
                 () -> new CaptureController(new GameConfig.Builder()
                         .setCaptureProgressDecayPerS(-0.1)
                         .build()));
+    }
+
+    private static BeamProfile maxedBeam(GameConfig config) {
+        BeamProfile beam = new BeamProfile(config);
+        while (beam.upgrade()) {
+            // Monte jusqu'au niveau maximum (5 par défaut).
+        }
+        return beam;
     }
 
     private static CaptureController newController() {

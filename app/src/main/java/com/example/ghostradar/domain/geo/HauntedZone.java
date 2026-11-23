@@ -1,5 +1,6 @@
 package com.example.ghostradar.domain.geo;
 
+import com.example.ghostradar.domain.Validation;
 import com.example.ghostradar.domain.game.RandomSource;
 
 import java.util.ArrayList;
@@ -39,12 +40,8 @@ public final class HauntedZone {
         if (center == null) {
             throw new IllegalArgumentException("center must not be null");
         }
-        if (radiusM <= 0.0) {
-            throw new IllegalArgumentException("radiusM must be positive");
-        }
-        if (earthRadiusM <= 0.0) {
-            throw new IllegalArgumentException("earthRadiusM must be positive");
-        }
+        Validation.requirePositiveFinite("radiusM", radiusM);
+        Validation.requirePositiveFinite("earthRadiusM", earthRadiusM);
         return new HauntedZone(null, center, radiusM, earthRadiusM);
     }
 
@@ -53,6 +50,12 @@ public final class HauntedZone {
      * jouable, hors obstacles. Les sommets sont répartis régulièrement autour du
      * centre avec un rayon aléatoire dans l'intervalle demandé, ce qui garantit
      * un polygone simple.
+     *
+     * <p>{@code maxCenterAttempts} est un budget d'algorithme passé par
+     * l'appelant, volontairement absent de {@code GameConfig} : il borne le
+     * nombre de centres tirés sans changer les règles de jeu. Si aucun centre
+     * valide n'est trouvé (y compris avec {@code maxCenterAttempts = 1}), la
+     * méthode lève {@link IllegalStateException}.</p>
      */
     public static HauntedZone randomPolygon(PlayArea playArea, RandomSource random,
                                             int minVertices, int maxVertices,
@@ -71,15 +74,12 @@ public final class HauntedZone {
         if (maxVertices < minVertices) {
             throw new IllegalArgumentException("maxVertices must be at least minVertices");
         }
-        if (minRadiusM <= 0.0) {
-            throw new IllegalArgumentException("minRadiusM must be positive");
-        }
+        Validation.requirePositiveFinite("minRadiusM", minRadiusM);
+        Validation.requirePositiveFinite("maxRadiusM", maxRadiusM);
         if (maxRadiusM < minRadiusM) {
             throw new IllegalArgumentException("maxRadiusM must be at least minRadiusM");
         }
-        if (minVertexDistanceM <= 0.0) {
-            throw new IllegalArgumentException("minVertexDistanceM must be positive");
-        }
+        Validation.requirePositiveFinite("minVertexDistanceM", minVertexDistanceM);
         if (maxCenterAttempts <= 0) {
             throw new IllegalArgumentException("maxCenterAttempts must be positive");
         }
@@ -113,6 +113,16 @@ public final class HauntedZone {
         return polygon;
     }
 
+    /**
+     * Centre de référence de la zone.
+     *
+     * <p>Pour un cercle admin, c'est le centre analytique. Pour un polygone,
+     * c'est la <em>moyenne arithmétique des sommets</em> calculée à la
+     * construction : ce n'est pas le centroïde de l'aire et rien ne garantit
+     * qu'il appartienne au polygone (en particulier s'il est concave). Les
+     * décisions d'appartenance doivent utiliser {@link #contains(LatLon)} ;
+     * l'UI ne doit pas supposer que ce point est dans la zone hantée.</p>
+     */
     public LatLon getCenter() {
         return center;
     }
@@ -122,6 +132,17 @@ public final class HauntedZone {
             throw new IllegalStateException("A polygonal haunted zone has no radius");
         }
         return radiusM;
+    }
+
+    /**
+     * Rayon terrestre utilisé pour les calculs géodésiques de cette zone.
+     *
+     * <p>Pour une zone polygonale, il provient du polygone ; pour un cercle
+     * admin, de la valeur fournie à {@link #circle}. C'est ce rayon que les
+     * consommateurs comparent à leur propre configuration (C1).</p>
+     */
+    public double getEarthRadiusM() {
+        return earthRadiusM;
     }
 
     public boolean contains(LatLon point) {

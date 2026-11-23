@@ -75,6 +75,21 @@ public class InventoryTest {
     }
 
     @Test
+    public void addRejectsOverflowWithoutChangingStock() {
+        Inventory full = new Inventory(new GameConfig.Builder()
+                .setStartingLureCount(Integer.MAX_VALUE)
+                .build());
+        assertThrows(IllegalArgumentException.class,
+                () -> full.add(GadgetType.LURE, 1));
+        assertEquals(Integer.MAX_VALUE, full.getCount(GadgetType.LURE));
+
+        Inventory almostFull = new Inventory(GameConfig.defaults());
+        assertThrows(IllegalArgumentException.class,
+                () -> almostFull.add(GadgetType.ECTOPLASM_MINE, Integer.MAX_VALUE));
+        assertEquals(1, almostFull.getCount(GadgetType.ECTOPLASM_MINE));
+    }
+
+    @Test
     public void rejectsInvalidArguments() {
         Inventory inventory = new Inventory(GameConfig.defaults());
 

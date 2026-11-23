@@ -12,6 +12,7 @@ import org.junit.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -104,7 +105,7 @@ public class EctoplasmMineTest {
     }
 
     @Test
-    public void mineIsOneShotAndDoesNotResetStun() {
+    public void updateReturnsTrueOnceAndDoesNotResetStun() {
         EctoplasmMine mines = new EctoplasmMine(GameConfig.defaults(), playArea());
         assertTrue(mines.place(PLAYER));
         Ghost ghost = new Ghost(PLAYER);
@@ -114,6 +115,29 @@ public class EctoplasmMineTest {
 
         assertFalse(mines.update(ghost));
         assertEquals(STUN_DURATION_S, ghost.getStunRemainingS(), 0.0);
+    }
+
+    @Test
+    public void secondMineInCommonZoneDoesNotReStunAlreadyStunnedGhost() {
+        // Deux mines à 5,1 m sont valides (MINE_MIN_DISTANCE_M = 5) et leurs
+        // rayons de 3 m se recouvrent : le fantôme peut être à portée des deux.
+        EctoplasmMine mines = new EctoplasmMine(GameConfig.defaults(), playArea());
+        assertTrue(mines.place(PLAYER));
+        assertTrue(mines.place(destination(5.1)));
+
+        Ghost ghost = new Ghost(destination(2.5));
+        assertTrue(mines.update(ghost));
+        assertTrue(ghost.isStunned());
+        double remainingAfterFirstStun = ghost.getStunRemainingS();
+
+        ghost.advanceStun(2.0);
+        double remainingBeforeSecondTick = ghost.getStunRemainingS();
+
+        assertFalse(mines.update(ghost));
+        assertEquals(remainingBeforeSecondTick, ghost.getStunRemainingS(), 0.0);
+        assertTrue(remainingBeforeSecondTick < remainingAfterFirstStun);
+        assertEquals(1, mines.getActiveCount());
+        assertEquals(STUN_DURATION_S - 2.0, remainingBeforeSecondTick, 0.0);
     }
 
     @Test
@@ -157,6 +181,56 @@ public class EctoplasmMineTest {
     }
 
     @Test
+    public void onlyMineThatTriggeredCurrentStunIsReportedAndOtherActiveMinesStayVisible() {
+        EctoplasmMine mines = new EctoplasmMine(GameConfig.defaults(), playArea());
+        assertTrue(mines.place(PLAYER));
+        assertTrue(mines.place(destination(6.0)));
+        assertTrue(mines.place(destination(12.0)));
+        Ghost ghost = new Ghost(PLAYER);
+
+        assertTrue(mines.update(ghost));
+        ghost.advanceStun(STUN_DURATION_S);
+        ghost.setPosition(destination(5.9));
+
+        assertTrue(mines.update(ghost));
+        assertEquals(1, mines.getActiveCount());
+
+        List<EctoplasmMine.PlacedMine> visible = mines.getVisibleMines(ghost);
+        assertEquals(2, visible.size());
+        assertEquals(destination(6.0), visible.get(0).getPosition());
+        assertTrue(visible.get(0).isTriggered());
+        assertEquals(destination(12.0), visible.get(1).getPosition());
+        assertFalse(visible.get(1).isTriggered());
+
+        Optional<EctoplasmMine.ActiveStun> activeStun = mines.getActiveStun(ghost);
+        assertTrue(activeStun.isPresent());
+        assertEquals(destination(6.0), activeStun.get().getMine().getPosition());
+        assertTrue(activeStun.get().getMine().isTriggered());
+        assertEquals(STUN_DURATION_S, activeStun.get().getRemainingS(), 0.0);
+
+        ghost.advanceStun(STUN_DURATION_S);
+
+        assertFalse(mines.getActiveStun(ghost).isPresent());
+        List<EctoplasmMine.PlacedMine> afterStun = mines.getVisibleMines(ghost);
+        assertEquals(1, afterStun.size());
+        assertEquals(destination(12.0), afterStun.get(0).getPosition());
+        assertFalse(afterStun.get(0).isTriggered());
+    }
+
+    @Test
+    public void externalStunDoesNotHighlightAnyMine() {
+        EctoplasmMine mines = new EctoplasmMine(GameConfig.defaults(), playArea());
+        assertTrue(mines.place(PLAYER));
+        Ghost ghost = new Ghost(destination(50.0));
+        ghost.stun(5.0);
+
+        assertFalse(mines.getActiveStun(ghost).isPresent());
+        List<EctoplasmMine.PlacedMine> visible = mines.getVisibleMines(ghost);
+        assertEquals(1, visible.size());
+        assertFalse(visible.get(0).isTriggered());
+    }
+
+    @Test
     public void rejectsInvalidArguments() {
         EctoplasmMine mines = new EctoplasmMine(GameConfig.defaults(), playArea());
 
@@ -164,9 +238,13 @@ public class EctoplasmMineTest {
                 () -> new EctoplasmMine(null, playArea()));
         assertThrows(IllegalArgumentException.class,
                 () -> new EctoplasmMine(GameConfig.defaults(), null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new EctoplasmMine(new GameConfig.Builder()
+                        .setEarthRadiusM(6_400_000.0).build(), playArea()));
         assertThrows(IllegalArgumentException.class, () -> mines.place(null));
         assertThrows(IllegalArgumentException.class, () -> mines.update(null));
         assertThrows(IllegalArgumentException.class, () -> mines.getVisibleMines(null));
+        assertThrows(IllegalArgumentException.class, () -> mines.getActiveStun(null));
     }
 
     @Test

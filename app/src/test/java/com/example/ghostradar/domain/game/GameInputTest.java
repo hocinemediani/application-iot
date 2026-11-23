@@ -17,21 +17,73 @@ public class GameInputTest {
     }
 
     @Test
-    public void storesFloorAndPressure() {
+    public void storesPressureOnGroundFloor() {
         GameInput input = new GameInput();
-        input.setFloor(2);
         input.setPressureHpa(1_000.5);
 
-        assertEquals(2, input.getFloor());
+        assertEquals(0, input.getFloor());
         assertEquals(1_000.5, input.getPressureHpa(), 0.0);
     }
 
     @Test
-    public void constructorStoresFloorAndPressure() {
-        GameInput input = new GameInput(1, 995.0);
+    public void constructorStoresGroundFloorAndPressure() {
+        GameInput input = new GameInput(0, 995.0);
 
-        assertEquals(1, input.getFloor());
+        assertEquals(0, input.getFloor());
         assertEquals(995.0, input.getPressureHpa(), 0.0);
+    }
+
+    @Test
+    public void constructorRejectsNonZeroFloor() {
+        assertThrows(IllegalArgumentException.class, () -> new GameInput(1, null));
+        assertThrows(IllegalArgumentException.class, () -> new GameInput(-2, 1_013.25));
+    }
+
+    @Test
+    public void setFloorRejectsNonZeroFloorWithoutChangingValue() {
+        GameInput input = new GameInput();
+
+        assertThrows(IllegalArgumentException.class, () -> input.setFloor(3));
+        assertThrows(IllegalArgumentException.class, () -> input.setFloor(-1));
+
+        assertEquals(0, input.getFloor());
+    }
+
+    @Test
+    public void constructorRejectsNonFiniteOrNonPositivePressure() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new GameInput(0, Double.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GameInput(0, Double.POSITIVE_INFINITY));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GameInput(0, Double.NEGATIVE_INFINITY));
+        assertThrows(IllegalArgumentException.class, () -> new GameInput(0, -1.0));
+        assertThrows(IllegalArgumentException.class, () -> new GameInput(0, 0.0));
+    }
+
+    @Test
+    public void setPressureHpaRejectsInvalidValuesWithoutChangingValue() {
+        GameInput input = new GameInput(0, 1_000.0);
+
+        assertThrows(IllegalArgumentException.class, () -> input.setPressureHpa(Double.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> input.setPressureHpa(Double.POSITIVE_INFINITY));
+        assertThrows(IllegalArgumentException.class, () -> input.setPressureHpa(-5.0));
+        assertThrows(IllegalArgumentException.class, () -> input.setPressureHpa(0.0));
+
+        assertEquals(1_000.0, input.getPressureHpa(), 0.0);
+    }
+
+    @Test
+    public void acceptsNullPressureAndAnyFinitePositivePressure() {
+        GameInput withoutPressure = new GameInput(0, null);
+        assertNull(withoutPressure.getPressureHpa());
+
+        withoutPressure.setPressureHpa(980.25);
+        assertEquals(980.25, withoutPressure.getPressureHpa(), 0.0);
+
+        withoutPressure.setPressureHpa(null);
+        assertNull(withoutPressure.getPressureHpa());
     }
 
     @Test
@@ -48,7 +100,7 @@ public class GameInputTest {
         GameInput input = new GameInput(0, 1_013.25);
         GameSnapshot snapshot = new GameSnapshot(GameState.EXPLORATION, input);
 
-        input.setFloor(1);
+        // Le floor est figé à 0 en V1 ; seule la pression peut encore varier.
         input.setPressureHpa(900.0);
 
         assertEquals(GameState.EXPLORATION, snapshot.getState());

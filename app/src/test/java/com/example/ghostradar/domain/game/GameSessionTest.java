@@ -142,6 +142,40 @@ public class GameSessionTest {
     }
 
     @Test
+    public void cooldownCanExpireDuringCaptureAndAllowImmediateNewTracking() {
+        FakeClock clock = new FakeClock();
+        GameSession session = sessionInCapture(clock);
+        assertEquals(28_000L, session.getCooldownRemainingMs());
+
+        clock.advanceMs(30_000L);
+        session.update();
+        assertEquals(0L, session.getCooldownRemainingMs());
+
+        assertTrue(session.completeCapture());
+        assertTrue(session.acknowledgeReward());
+        assertTrue(session.startTracking());
+    }
+
+    @Test
+    public void cooldownUsesActualTransitionTimeWhenTickIsLate() {
+        FakeClock clock = new FakeClock();
+        GameSession session = newSession(GameConfig.defaults(), clock);
+
+        session.startTracking();
+        session.onGhostInCaptureRange();
+
+        // Le tick traite la fin du délai de screamer avec 5 s de retard : les
+        // 30 s doivent partir de l'heure réelle de transition, pas de
+        // l'échéance théorique (qui donnerait seulement 25 s restantes).
+        // L'état peut déjà être en CAPTURE : la fin du screamer reste ancrée
+        // sur son échéance théorique, seul le cooldown change de référence.
+        clock.advanceMs(SCREAMER_DELAY_MIN_MS + 5_000L);
+        session.update();
+
+        assertEquals(COOLDOWN_MS, session.getCooldownRemainingMs());
+    }
+
+    @Test
     public void outOfAreaPausesAndFreezesScreamerTimers() {
         FakeClock clock = new FakeClock();
         GameSession session = newSession(GameConfig.defaults(), clock);

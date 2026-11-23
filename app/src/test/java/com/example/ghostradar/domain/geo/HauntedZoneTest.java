@@ -68,10 +68,14 @@ public class HauntedZoneTest {
     }
 
     @Test
-    public void randomPolygonFailsWhenNoValidCenterExists() {
+    public void randomPolygonFailsWhenNoValidCenterExistsWithinAttemptBudget() {
+        // B4 impose un obstacle strictement intérieur : l'ancien obstacle
+        // (-0.1..1.1) englobant l'extérieur n'est plus constructible. Celui-ci
+        // couvre presque toute la zone et bloque tous les centres candidats.
         PlayArea area = area(
                 square(0.0, 0.0, 1.0, 1.0),
-                Collections.singletonList(square(-0.1, -0.1, 1.1, 1.1))
+                Collections.singletonList(
+                        square(1e-9, 1e-9, 1.0 - 1e-9, 1.0 - 1e-9))
         );
 
         assertThrows(IllegalStateException.class,
@@ -95,6 +99,32 @@ public class HauntedZoneTest {
     }
 
     @Test
+    public void singleCenterAttemptFailsWhenOnlyCandidateIsInsideObstacle() {
+        PlayArea area = area(square(0.0, 0.0, 1.0, 1.0),
+                Collections.singletonList(square(0.4, 0.4, 0.6, 0.6)));
+        // Le centre de la boîte englobante (0,5 ; 0,5) est dans l'obstacle :
+        // l'unique tentative ne peut aboutir.
+        RandomSource centerOfObstacle = new RandomSource() {
+            @Override
+            public double nextDouble() {
+                return 0.5;
+            }
+
+            @Override
+            public int nextInt(int boundExclusive) {
+                throw new AssertionError("Les sommets ne doivent pas être tirés");
+            }
+        };
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> HauntedZone.randomPolygon(area, centerOfObstacle,
+                        MIN_VERTICES, MAX_VERTICES, MIN_RADIUS_M, MAX_RADIUS_M,
+                        MIN_VERTEX_DISTANCE_M, 1));
+
+        assertTrue(failure.getMessage().contains("1 attempts"));
+    }
+
+    @Test
     public void polygonZoneContainsOnlyItsInterior() {
         GeoPolygon polygon = square(0.0, 0.0, 1.0, 1.0);
         HauntedZone zone = HauntedZone.polygon(polygon);
@@ -104,6 +134,29 @@ public class HauntedZoneTest {
         assertTrue(zone.contains(new LatLon(0.5, 0.5)));
         assertFalse(zone.contains(new LatLon(1.5, 0.5)));
         assertEquals(new LatLon(0.5, 0.5), zone.getCenter());
+    }
+
+    @Test
+    public void polygonCenterIsVertexAverageEvenWhenOutsideConcavePolygon() {
+        // B6 : le centre est un point de référence (moyenne des sommets), pas
+        // une garantie d'appartenance. L'encoche depuis le bord sud place la
+        // moyenne des sommets (latitude 5,5/7 ; longitude 1) dans le vide.
+        GeoPolygon concave = polygon(
+                new LatLon(0.0, 0.0),
+                new LatLon(0.0, 0.8),
+                new LatLon(1.5, 1.0),
+                new LatLon(0.0, 1.2),
+                new LatLon(0.0, 2.0),
+                new LatLon(2.0, 2.0),
+                new LatLon(2.0, 0.0)
+        );
+        HauntedZone zone = HauntedZone.polygon(concave);
+        LatLon center = zone.getCenter();
+
+        assertEquals(5.5 / 7.0, center.getLatitude(), 1e-9);
+        assertEquals(1.0, center.getLongitude(), 1e-9);
+        assertFalse(concave.contains(center));
+        assertTrue(zone.contains(new LatLon(1.8, 0.5)));
     }
 
     @Test
@@ -123,6 +176,24 @@ public class HauntedZoneTest {
     public void circleRejectsNonPositiveRadius() {
         assertThrows(IllegalArgumentException.class,
                 () -> HauntedZone.circle(new LatLon(0.0, 0.0), 0.0, EARTH_RADIUS_M));
+    }
+
+    @Test
+    public void rejectsNonFiniteRadii() {
+        PlayArea area = area(square(0.0, 0.0, 3.0, 3.0), Collections.emptyList());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> HauntedZone.circle(new LatLon(0.0, 0.0), Double.NaN, EARTH_RADIUS_M));
+        assertThrows(IllegalArgumentException.class,
+                () -> HauntedZone.circle(new LatLon(0.0, 0.0), 25.0, Double.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> HauntedZone.randomPolygon(area, RandomSource.seeded(1L),
+                        MIN_VERTICES, MAX_VERTICES, Double.NaN, MAX_RADIUS_M,
+                        MIN_VERTEX_DISTANCE_M, MAX_CENTER_ATTEMPTS));
+        assertThrows(IllegalArgumentException.class,
+                () -> HauntedZone.randomPolygon(area, RandomSource.seeded(1L),
+                        MIN_VERTICES, MAX_VERTICES, MIN_RADIUS_M, Double.POSITIVE_INFINITY,
+                        MIN_VERTEX_DISTANCE_M, MAX_CENTER_ATTEMPTS));
     }
 
     private static HauntedZone randomZone(PlayArea area, RandomSource random) {

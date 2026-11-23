@@ -167,13 +167,9 @@ public class CameraGlitchControllerTest {
         } catch (IllegalArgumentException expected) {
             // Attendu.
         }
-        GameConfig invalid = new GameConfig.Builder().setCameraGlitchDurationMs(0).build();
-        try {
-            new CameraGlitchController(invalid, random);
-            fail("duration must be positive");
-        } catch (IllegalArgumentException expected) {
-            // Attendu.
-        }
+        // Une durée non positive est désormais refusée par GameConfig.build()
+        // (validation centralisée) et est testée dans GameConfigTest ; le
+        // contrôleur n'a plus besoin de la re-valider.
     }
 
     private static CameraGlitchController newController(GameConfig config) {

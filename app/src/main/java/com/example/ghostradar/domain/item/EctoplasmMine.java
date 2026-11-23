@@ -1,5 +1,6 @@
 package com.example.ghostradar.domain.item;
 
+import com.example.ghostradar.domain.Validation;
 import com.example.ghostradar.domain.config.GameConfig;
 import com.example.ghostradar.domain.entity.Ghost;
 import com.example.ghostradar.domain.geo.GeoMath;
@@ -9,6 +10,7 @@ import com.example.ghostradar.domain.geo.PlayArea;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Champ de mines à ectoplasme.
@@ -19,15 +21,21 @@ import java.util.List;
  * déclenchement : si le fantôme passe à moins de
  * {@code MINE_TRIGGER_RADIUS_M}, la mine la plus proche se déclenche,
  * immobilise le fantôme {@code MINE_STUN_DURATION_S} et libère son slot. Une
- * mine déclenchée reste visible sur la carte pendant le stun, puis disparaît.
- * Le déclenchement est signalé par le retour de {@link #update(Ghost)} ; la
- * couche UI décide de l'alerte ou du son.</p>
+ * mine déclenchée reste visible sur la carte pendant son stun, puis disparaît ;
+ * {@link #getActiveStun(Ghost)} identifie celle qui a provoqué le stun en cours
+ * avec le temps restant. Le déclenchement est signalé par le retour de
+ * {@link #update(Ghost)} ; la couche UI décide de l'alerte ou du son.</p>
+ *
+ * <p>Les flags {@code MINE_ONE_SHOT} et {@code MINE_PERSIST_UNTIL_TRIGGERED}
+ * sont documentés sans variante de comportement en V1 : le champ reste one-shot
+ * et les mines persistent jusqu'au déclenchement, quelle que soit leur valeur.</p>
  */
 public final class EctoplasmMine {
 
     private final GameConfig config;
     private final PlayArea playArea;
     private final List<PlacedMine> mines = new ArrayList<>();
+    private PlacedMine stunningMine;
 
     public EctoplasmMine(GameConfig config, PlayArea playArea) {
         if (config == null) {
@@ -36,6 +44,8 @@ public final class EctoplasmMine {
         if (playArea == null) {
             throw new IllegalArgumentException("playArea must not be null");
         }
+        Validation.requireSameRadius("earthRadiusM (config/playArea)",
+                config.getEarthRadiusM(), playArea.getEarthRadiusM());
         if (config.getMineTriggerRadiusM() <= 0.0) {
             throw new IllegalArgumentException("mineTriggerRadiusM must be positive");
         }
@@ -89,13 +99,20 @@ public final class EctoplasmMine {
      *
      * <p>Au plus une mine se déclenche par appel : la plus proche du fantôme
      * parmi les mines non déclenchées situées à moins de
-     * {@code MINE_TRIGGER_RADIUS_M}.</p>
+     * {@code MINE_TRIGGER_RADIUS_M}. Un fantôme déjà stunné ignore toutes les
+     * mines (Q1) : aucune mine n'est consommée et le timer de stun n'est pas
+     * remis à zéro, même si le fantôme se trouve dans la zone de plusieurs
+     * mines à 5,1 m l'une de l'autre.</p>
      *
      * @return {@code true} si une mine vient de se déclencher
      */
     public boolean update(Ghost ghost) {
         if (ghost == null) {
             throw new IllegalArgumentException("ghost must not be null");
+        }
+        refreshStun(ghost);
+        if (ghost.isStunned()) {
+            return false;
         }
 
         PlacedMine nearest = null;
@@ -117,6 +134,7 @@ public final class EctoplasmMine {
         }
 
         nearest.triggered = true;
+        stunningMine = nearest;
         ghost.stun(config.getMineStunDurationS());
         return true;
     }
@@ -135,8 +153,10 @@ public final class EctoplasmMine {
     }
 
     /**
-     * Mines à afficher sur la carte : les mines non déclenchées et, si le
-     * fantôme est stunné, les mines déclenchées qui viennent de l'immobiliser.
+     * Mines à afficher sur la carte : toutes les mines actives (non
+     * déclenchées), plus la mine qui a provoqué le stun en cours tant qu'il
+     * dure. Les mines déclenchées lors d'un stun précédent ne réapparaissent
+     * pas.
      *
      * @return liste non modifiable, vide si {@code MINE_VISIBLE_ON_MAP = false}
      */
@@ -144,17 +164,67 @@ public final class EctoplasmMine {
         if (ghost == null) {
             throw new IllegalArgumentException("ghost must not be null");
         }
+        refreshStun(ghost);
         if (!config.isMineVisibleOnMap()) {
             return Collections.emptyList();
         }
 
         List<PlacedMine> visible = new ArrayList<>();
+        if (stunningMine != null) {
+            visible.add(stunningMine);
+        }
         for (PlacedMine mine : mines) {
-            if (!mine.isTriggered() || ghost.isStunned()) {
+            if (!mine.isTriggered()) {
                 visible.add(mine);
             }
         }
         return Collections.unmodifiableList(visible);
+    }
+
+    /**
+     * Mine à l'origine du stun en cours, avec le temps de stun restant, afin
+     * que l'UI puisse l'afficher différemment (halo, alerte) pendant le stun.
+     *
+     * @return vide si le fantôme n'est pas stunné ou si le stun ne provient pas
+     *         d'une mine de ce champ
+     */
+    public Optional<ActiveStun> getActiveStun(Ghost ghost) {
+        if (ghost == null) {
+            throw new IllegalArgumentException("ghost must not be null");
+        }
+        refreshStun(ghost);
+        if (stunningMine == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new ActiveStun(stunningMine, ghost.getStunRemainingS()));
+    }
+
+    private void refreshStun(Ghost ghost) {
+        if (!ghost.isStunned()) {
+            stunningMine = null;
+        }
+    }
+
+    /**
+     * Mine déclenchée à l'origine du stun en cours et temps restant.
+     */
+    public static final class ActiveStun {
+
+        private final PlacedMine mine;
+        private final double remainingS;
+
+        private ActiveStun(PlacedMine mine, double remainingS) {
+            this.mine = mine;
+            this.remainingS = remainingS;
+        }
+
+        public PlacedMine getMine() {
+            return mine;
+        }
+
+        public double getRemainingS() {
+            return remainingS;
+        }
     }
 
     /**

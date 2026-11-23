@@ -6,7 +6,9 @@ package com.example.ghostradar.domain.game;
  * <p>Objet immuable : les valeurs de {@link GameInput} sont copiées à la
  * construction. Toute modification ultérieure de l'entrée source n'affecte
  * pas le snapshot. En V1, le snapshot ne porte que l'état du jeu, l'étage et
- * la pression ; il ne référence aucun modèle de carte ni d'étage.</p>
+ * la pression ; il ne référence aucun modèle de carte ni d'étage. Les valeurs
+ * copiées sont déjà validées par {@link GameInput} : {@code floor} vaut 0 et
+ * la pression est {@code null} ou finie et strictement positive.</p>
  */
 public final class GameSnapshot {
 

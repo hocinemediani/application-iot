@@ -56,7 +56,7 @@ Décisions générales :
    - Calibrage d'une pression de référence `P0` au rez-de-chaussée.
    - Détection automatique de l'étage actuel du joueur : `0,36 hPa` par étage (`PRESSURE_PER_FLOOR_HPA`), hystérésis `±0,1 hPa` (`FLOOR_HYSTERESIS_HPA`), calibration `5 s` (`BAROMETER_CALIBRATION_S`).
    - Numérotation des étages : `0 = RDC`, puis `1, 2, 3…` ; pas de sous-sol en V2.
-   - En V1, l'altitude est ignorée : `GameInput.floor = 0` et `FloorProvider` retourne 0.
+   - En V1, l'altitude est ignorée : `GameInput.floor = 0` et `FloorProvider` retourne 0. L'invariant est appliqué dans `GameInput` (constructeur et setters) : tout `floor != 0` est refusé ; `pressureHpa` est soit `null`, soit un nombre fini strictement positif (valeur infinie, NaN, nulle ou négative refusée). `GameSnapshot` copie donc toujours des valeurs valides et le `FloorProvider` par défaut reste inchangé.
    - Les valeurs seront recalibrées lorsque la V2 sera développée et que les mesures réelles seront disponibles ; elles restent des constantes configurables.
 
 ### Contrats d'interface capteurs (Jalon 2)
@@ -89,8 +89,8 @@ Décisions générales :
 
 1. **`EXPLORATION`** : Le joueur se déplace dans la zone cartographiée. Lorsqu'il entre dans une Zone Hantée, une probabilité par seconde déclenche une alerte plein écran : `"ANOMALIE DÉTECTÉE"`.
    - Probabilité de base : `2 %/s` (`ZONE_TRIGGER_PROBABILITY_PER_S = 0,02`), constante ajustable.
-   - Cooldown après la fin d'un tracking : `30 s` (`ZONE_TRIGGER_COOLDOWN_S`).
-   - Les zones hantées sont générées sous forme de polygones aléatoires (`ZONE_POLYGON_MIN_VERTICES = 5`, `ZONE_POLYGON_MAX_VERTICES = 8`, `ZONE_RADIUS_MIN_M = 10`, `ZONE_RADIUS_MAX_M = 30`), avec un centre tiré aléatoirement dans le polygone extérieur, hors obstacles. En mode admin, la zone est un cercle de rayon configurable.
+   - Cooldown après la fin d'un tracking : `30 s` (`ZONE_TRIGGER_COOLDOWN_S`). Il démarre à l'heure réelle de la transition hors `TRACKING` (vers `SCREAMER`, ou vers `CAPTURE` si le screamer est désactivé) et n'est pas redémarré à la fin de la rencontre : il peut donc être écoulé avant la fin de la capture ou de la récompense, et un nouveau tracking est alors immédiatement autorisé.
+   - Les zones hantées sont générées sous forme de polygones aléatoires (`ZONE_POLYGON_MIN_VERTICES = 5`, `ZONE_POLYGON_MAX_VERTICES = 8`, `ZONE_RADIUS_MIN_M = 10`, `ZONE_RADIUS_MAX_M = 30`), avec un centre tiré aléatoirement dans le polygone extérieur, hors obstacles. En mode admin, la zone est un cercle de rayon configurable. `HauntedZone.getCenter()` d'un polygone reste la moyenne arithmétique de ses sommets (B6) : c'est un point de référence, pas un centroïde d'aire, et il peut être hors d'un polygone concave. L'appartenance est déterminée par `contains()`.
    - Le fantôme apparaît dans la zone hantée, à une distance du joueur comprise entre `15 m` (`GHOST_SPAWN_MIN_DISTANCE_M`) et `40 m` (`GHOST_SPAWN_MAX_DISTANCE_M`), valeurs initiales configurables à ajuster lors des tests GPS réels. Si aucun point valide de la zone ne satisfait cette contrainte, on choisit le point valide le plus proche de la cible.
    - Si le joueur sort du polygone jouable : avertissement + pause de la simulation (`PLAYER_OUT_OF_AREA_PAUSE = true`).
 
@@ -136,7 +136,7 @@ Décisions générales :
 ## 5. Carte, Polygones & Mode Cartographie
 
 - **Périmètre jouable** : un polygone extérieur complet.
-- **Obstacles** : zéro ou plusieurs polygones fermés intérieurs (bâtiments, zones interdites, patchs d'herbe, etc.) formant des trous dans la zone jouable. Le fantôme ne peut pas y entrer ; il est repoussé et glisse le long de leurs bords. Le joueur n'est pas physiquement bloqué en V1 (le GPS réel fait foi), mais les obstacles sont affichés sur la carte et signalés comme non praticables.
+- **Obstacles** : zéro ou plusieurs polygones fermés intérieurs (bâtiments, zones interdites, patchs d'herbe, etc.) formant des trous dans la zone jouable. Le fantôme ne peut pas y entrer ; il est repoussé et glisse le long de leurs bords. Le joueur n'est pas physiquement bloqué en V1 (le GPS réel fait foi), mais les obstacles sont affichés sur la carte et signalés comme non praticables. `PlayArea` vérifie cette topologie à la construction : chaque obstacle est strictement à l'intérieur du polygone extérieur (aucun sommet ni bord sur la frontière, égalité refusée) et les intérieurs des obstacles ne se chevauchent pas ; deux obstacles peuvent partager un sommet ou un bord entier (trous adjacents).
 - **Mode cartographie** :
   1. L'utilisateur active l'enregistrement.
   2. Il marche pour capturer les positions GPS brutes : un point tous les `3 m` ou `2 s` (`CARTOGRAPHY_SAMPLE_DISTANCE_M`, `CARTOGRAPHY_SAMPLE_INTERVAL_MS`).
@@ -144,12 +144,16 @@ Décisions générales :
   4. Le polygone est éditable : déplacer, ajouter, supprimer des sommets, avec `undo` (`CARTOGRAPHY_UNDO_ENABLED = true`).
   5. En mode édition, l'utilisateur peut tracer manuellement des polygones fermés d'obstacles.
 - **Validation** : minimum `3` sommets (`MIN_POLYGON_VERTICES`), rejet des auto-intersections et des sommets dupliqués à moins de `0,5 m` (`MIN_VERTEX_DISTANCE_M`).
-- **Projection** : projection locale ENU centrée sur le polygone, en mètres, pour le rendu `Canvas` (`MAP_PROJECTION = LOCAL_ENU`).
+- **Projection** : projection locale ENU centrée sur le polygone, en mètres, pour le rendu `Canvas` (`MAP_PROJECTION = LOCAL_ENU`). Limites de validité : pas d'antiméridien (étendue en longitude ≤ 180°) et `|latitude d'origine| < 80°` ; `MapProjection` refuse toute zone qui les dépasse. Les coordonnées sont garanties finies par `LatLon`.
 - **Aucun polygone N7 n'est codé en dur** : la zone est créée en mode cartographie, ou importée depuis un plan N7 si l'utilisateur en fournit un.
 
 ## 6. Configuration & Constantes
 
 Toutes les valeurs ci-dessous sont des valeurs par défaut, centralisées dans `GameConfig` et modifiables sans changer la logique. Les tests doivent pouvoir surcharger la configuration.
+
+> Budgets de retry (C2) : `GhostSpawner.trySpawn(maxAttempts)` et `HauntedZone.randomPolygon(maxCenterAttempts)` sont des **paramètres d'algorithme passés par l'appelant**, volontairement absents de `GameConfig` : ils bornent le nombre de tirages aléatoires sans modifier les règles de jeu. Leur épuisement donne respectivement `Optional.empty()` et `IllegalStateException` ; des tests couvrent la valeur `1` et l'échec associé.
+
+> Drapeaux réservés V1 (sans variante de comportement) : `MINE_ONE_SHOT`, `MINE_PERSIST_UNTIL_TRIGGERED`, `MINE_ALERT_ON_STUN`, `LURE_ONE_SHOT`, `LURE_PRIORITY_OVER_FLEE`, `LURE_AFFECTS_STUNNED`, `ADMIN_SPAWN_AT_MAP_POINT` et `ADMIN_IGNORE_ZONES_AND_PROBABILITY` restent exposés pour compatibilité mais n'ont aucun effet : les comportements décrits plus haut s'appliquent toujours. En particulier, `spawnAdmin` ignore les zones et la probabilité mais reste contraint à la zone jouable hors obstacles.
 
 ### 6.1 Géométrie / GPS / Carte
 | Constante | Valeur par défaut | Rôle |

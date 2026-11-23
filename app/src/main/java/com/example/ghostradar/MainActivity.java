@@ -19,6 +19,11 @@ import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 
 import com.example.ghostradar.domain.config.GameConfig;
+import com.example.ghostradar.domain.game.GameClock;
+import com.example.ghostradar.domain.game.GameInput;
+import com.example.ghostradar.domain.game.GameLoop;
+import com.example.ghostradar.domain.game.GameSession;
+import com.example.ghostradar.domain.game.GameState;
 import com.example.ghostradar.domain.game.RandomSource;
 import com.example.ghostradar.domain.sensors.SensorFrame;
 import com.example.ghostradar.sensors.SensorError;
@@ -47,6 +52,9 @@ public class MainActivity extends AppCompatActivity {
         public void onFrame(SensorFrame frame) {
             latestFrame = frame;
             updateNoiseGauge(frame);
+            if (gameLoop != null) {
+                gameLoop.onFrame(frame);
+            }
         }
 
         @Override
@@ -55,9 +63,22 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    private final GameLoop.Listener gameLoopListener = new GameLoop.Listener() {
+        @Override
+        public void onStateChanged(GameState previous, GameState current) {
+            if (previous == GameState.EXPLORATION && current == GameState.TRACKING) {
+                triggerSpawnGlitch();
+            }
+            if (previous != GameState.CAPTURE && current == GameState.CAPTURE) {
+                triggerCaptureGlitch();
+            }
+        }
+    };
+
     private AndroidSensorFrameCollector sensorCollector;
     private SensorFrame latestFrame = SensorFrame.EMPTY;
     private GameConfig gameConfig;
+    private GameLoop gameLoop;
     private PreviewView cameraPreviewView;
     private View cameraFilterOverlay;
     private GlitchOverlayView glitchOverlayView;
@@ -112,6 +133,11 @@ public class MainActivity extends AppCompatActivity {
         CameraGlitchController glitchController = new CameraGlitchController(
                 gameConfig, RandomSource.seeded(System.nanoTime()));
         glitchOverlayView.setController(glitchController);
+        gameLoop = new GameLoop(
+                new GameSession(gameConfig, GameClock.system(),
+                        RandomSource.seeded(System.nanoTime())),
+                new GameInput(),
+                gameLoopListener);
         sensorCollector = new AndroidSensorFrameCollector(this, gameConfig);
         SensorPermissions.requestIfNeeded(this);
 
@@ -233,6 +259,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         cameraResumed = true;
+        if (gameLoop != null) {
+            gameLoop.resume();
+        }
         if (sensorCollector != null) {
             sensorCollector.start(frameListener);
         }
@@ -243,6 +272,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         cameraResumed = false;
+        if (gameLoop != null) {
+            gameLoop.pause();
+        }
         if (cameraProvider != null) {
             cameraProvider.unbindAll();
         }
@@ -261,7 +293,9 @@ public class MainActivity extends AppCompatActivity {
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == SensorPermissions.REQUEST_CODE) {
-            if (sensorCollector != null) {
+            // cameraResumed reflète le lifecycle de l'Activity : ne pas relancer
+            // les capteurs en arrière-plan si une permission arrive après onPause.
+            if (sensorCollector != null && cameraResumed) {
                 // Relance les capteurs dont la permission vient d'être accordée.
                 sensorCollector.stop();
                 sensorCollector.start(frameListener);
@@ -274,6 +308,10 @@ public class MainActivity extends AppCompatActivity {
 
     public SensorFrame getLatestFrame() {
         return latestFrame;
+    }
+
+    public GameLoop getGameLoop() {
+        return gameLoop;
     }
 
     /** Hook public appelé lors de l'apparition d'un fantôme. */

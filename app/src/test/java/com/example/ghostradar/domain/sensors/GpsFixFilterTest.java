@@ -99,15 +99,14 @@ public class GpsFixFilterTest {
     }
 
     @Test
-    public void rejectsInvalidCoordinates() {
-        GpsFixFilter filter = new GpsFixFilter(GameConfig.defaults());
-
-        assertFalse(filter.accept(sample(new LatLon(Double.NaN, 2.0), 5.0, 0L)).isPresent());
-        assertFalse(filter.accept(sample(new LatLon(91.0, 2.0), 5.0, 0L)).isPresent());
-        assertFalse(filter.accept(sample(new LatLon(-91.0, 2.0), 5.0, 0L)).isPresent());
-        assertFalse(filter.accept(sample(new LatLon(48.0, 181.0), 5.0, 0L)).isPresent());
-        assertFalse(filter.accept(sample(new LatLon(48.0, Double.POSITIVE_INFINITY), 5.0, 0L))
-                .isPresent());
+    public void invalidCoordinatesAreRejectedAtConstruction() {
+        // Depuis la validation centralisée (Q7), c'est LatLon qui refuse ces
+        // valeurs ; le filtre n'a plus à les filtrer en aval.
+        assertThrows(IllegalArgumentException.class, () -> new LatLon(Double.NaN, 2.0));
+        assertThrows(IllegalArgumentException.class, () -> new LatLon(91.0, 2.0));
+        assertThrows(IllegalArgumentException.class, () -> new LatLon(-91.0, 2.0));
+        assertThrows(IllegalArgumentException.class, () -> new LatLon(48.0, 181.0));
+        assertThrows(IllegalArgumentException.class, () -> new LatLon(48.0, Double.POSITIVE_INFINITY));
     }
 
     @Test

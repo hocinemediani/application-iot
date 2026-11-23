@@ -1,5 +1,6 @@
 package com.example.ghostradar.domain.ai;
 
+import com.example.ghostradar.domain.Validation;
 import com.example.ghostradar.domain.config.GameConfig;
 import com.example.ghostradar.domain.entity.Ghost;
 import com.example.ghostradar.domain.geo.GeoMath;
@@ -29,6 +30,8 @@ public final class GhostMovement {
         if (playArea == null) {
             throw new IllegalArgumentException("playArea must not be null");
         }
+        Validation.requireSameRadius("earthRadiusM (config/playArea)",
+                config.getEarthRadiusM(), playArea.getEarthRadiusM());
         this.config = config;
         this.playArea = playArea;
     }
@@ -39,7 +42,8 @@ public final class GhostMovement {
      * <p>Un tick commencé avec un fantôme stunné ne produit aucun déplacement,
      * même si le stun expire pendant ce tick : le mouvement reprend au tick
      * suivant. L'appât arrivé à portée place le fantôme exactement sur la
-     * position du joueur, sans dépassement.</p>
+     * position du joueur, sans dépassement, puis la ramène dans la zone
+     * jouable si le joueur en est sorti.</p>
      *
      * @param ghost          fantôme à déplacer
      * @param playerPosition position courante du joueur
@@ -55,9 +59,7 @@ public final class GhostMovement {
         if (playerPosition == null) {
             throw new IllegalArgumentException("playerPosition must not be null");
         }
-        if (deltaSeconds < 0.0) {
-            throw new IllegalArgumentException("deltaSeconds must not be negative");
-        }
+        Validation.requireDeltaSeconds(deltaSeconds);
 
         if (ghost.isStunned()) {
             ghost.advanceStun(deltaSeconds);
@@ -76,7 +78,7 @@ public final class GhostMovement {
                     position, playerPosition, earthRadiusM);
             double lureStepM = config.getLureSpeedMps() * deltaSeconds;
             if (lureStepM >= distanceToPlayerM) {
-                ghost.setPosition(playerPosition);
+                ghost.setPosition(playArea.clamp(playerPosition));
                 return;
             }
             double bearing = GeoMath.initialBearingDegrees(position, playerPosition);

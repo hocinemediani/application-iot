@@ -114,6 +114,58 @@ public class GeoPolygonTest {
         assertEquals(new LatLon(0.0, 0.5), polygon.closestPointOnBoundary(new LatLon(0.0, 0.5)));
     }
 
+    @Test
+    public void rejectsCollinearDegeneratePolygon() {
+        // Le point milieu est entre les deux autres : toutes les paires
+        // d'arêtes sont adjacentes, donc l'auto-intersection ne le voit pas,
+        // mais le polygone a une aire nulle et contains() renvoie toujours faux.
+        List<LatLon> collinear = Arrays.asList(
+                new LatLon(0.0, 0.0),
+                new LatLon(0.0, 1.0),
+                new LatLon(0.0, 2.0)
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> polygon(collinear));
+    }
+
+    @Test
+    public void acceptsThinButNonDegeneratePolygon() {
+        // Garde-fou : une aire faible mais non nulle ne doit pas être confondue
+        // avec un polygone colinéaire.
+        List<LatLon> thin = Arrays.asList(
+                new LatLon(0.0, 0.0),
+                new LatLon(0.0, 2.0),
+                new LatLon(1e-6, 1.0)
+        );
+
+        GeoPolygon polygon = polygon(thin);
+
+        assertTrue(polygon.contains(new LatLon(2e-7, 1.0)));
+    }
+
+    @Test
+    public void pointQueriesRejectNullWithIllegalArgumentException() {
+        GeoPolygon polygon = polygon(square());
+
+        assertThrows(IllegalArgumentException.class, () -> polygon.contains(null));
+        assertThrows(IllegalArgumentException.class, () -> polygon.nearestVertex(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> polygon.closestPointOnBoundary(null));
+    }
+
+    @Test
+    public void rejectsNonFiniteRadiusAndInvalidMinimumVertexDistance() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new GeoPolygon(square(), 3, MIN_VERTEX_DISTANCE_M, Double.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GeoPolygon(square(), 3, MIN_VERTEX_DISTANCE_M,
+                        Double.POSITIVE_INFINITY));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GeoPolygon(square(), 3, Double.NaN, EARTH_RADIUS_M));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GeoPolygon(square(), 3, -1.0, EARTH_RADIUS_M));
+    }
+
     private static GeoPolygon polygon(List<LatLon> vertices) {
         return new GeoPolygon(vertices, 3, MIN_VERTEX_DISTANCE_M, EARTH_RADIUS_M);
     }

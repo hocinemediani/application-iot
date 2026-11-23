@@ -1,5 +1,6 @@
 package com.example.ghostradar.domain.entity;
 
+import com.example.ghostradar.domain.Validation;
 import com.example.ghostradar.domain.geo.LatLon;
 
 /**
@@ -52,9 +53,7 @@ public final class Ghost {
      * @param durationS durée strictement positive, en secondes
      */
     public void stun(double durationS) {
-        if (durationS <= 0.0) {
-            throw new IllegalArgumentException("durationS must be positive");
-        }
+        Validation.requirePositiveFinite("durationS", durationS);
         stunRemainingS = durationS;
         state = GhostState.STUNNED;
     }
@@ -64,9 +63,7 @@ public final class Ghost {
      * {@link GhostState#ACTIVE} lorsque le timer atteint zéro.
      */
     public void advanceStun(double deltaSeconds) {
-        if (deltaSeconds < 0.0) {
-            throw new IllegalArgumentException("deltaSeconds must not be negative");
-        }
+        Validation.requireDeltaSeconds(deltaSeconds);
         if (!isStunned()) {
             return;
         }

@@ -1,5 +1,6 @@
 package com.example.ghostradar.domain.config;
 
+import com.example.ghostradar.domain.Validation;
 import com.example.ghostradar.domain.game.GameState;
 
 import java.util.Collections;
@@ -112,6 +113,9 @@ public final class GameConfig {
     private final RadarOrientation radarOrientation;
     private final boolean radarShowDistance;
     private final Set<GameState> radarVisibleStates;
+    // Réservés V1 sans variante de comportement (voir le bloc plus bas) :
+    // spawnAdmin() ignore toujours zones et probabilité et reste contraint à
+    // la play area hors obstacles (Q2/Q6).
     private final boolean adminSpawnAtMapPoint;
     private final boolean adminIgnoreZonesAndProbability;
     private final boolean adminDebugOnly;
@@ -122,6 +126,18 @@ public final class GameConfig {
     private final boolean captureGhostPositionLocked;
     private final boolean noiseAffectsCapture;
     private final boolean gadgetsUsableDuringCapture;
+    // Drapeaux RÉSERVÉS V1, sans variante de comportement (Q2) : leurs setters
+    // restent exposés pour la compatibilité de configuration, mais aucun
+    // consommateur ne les lit. Changer leur valeur n'a aucun effet sur
+    // EctoplasmMine, Lure, GhostMovement, GhostSpawner ou GameSession.
+    //  - MINE_ONE_SHOT / MINE_PERSIST_UNTIL_TRIGGERED : le champ reste one-shot
+    //    et les mines non déclenchées persistent ;
+    //  - MINE_ALERT_ON_STUN : update() signale toujours le déclenchement ;
+    //  - LURE_ONE_SHOT / LURE_PRIORITY_OVER_FLEE / LURE_AFFECTS_STUNNED :
+    //    l'appât reste one-shot, prioritaire et inactif sur fantôme stunné ;
+    //  - ADMIN_SPAWN_AT_MAP_POINT / ADMIN_IGNORE_ZONES_AND_PROBABILITY :
+    //    spawnAdmin() ignore toujours zones et probabilité, mais reste
+    //    contraint à la play area hors obstacles (Q6).
     private final boolean mineOneShot;
     private final boolean minePersistUntilTriggered;
     private final boolean mineVisibleOnMap;
@@ -186,8 +202,8 @@ public final class GameConfig {
         this.lureDurationS = builder.lureDurationS;
         this.lureSpeedMps = builder.lureSpeedMps;
         this.captureDistanceM = builder.captureDistanceM;
-        this.captureRequiredSeconds = builder.captureRequiredSeconds;
-        this.captureAngleToleranceDeg = builder.captureAngleToleranceDeg;
+        this.captureRequiredSeconds = builder.captureRequiredSeconds();
+        this.captureAngleToleranceDeg = builder.captureAngleToleranceDeg();
         this.captureTimeoutS = builder.captureTimeoutS;
         this.captureProgressDecayPerS = builder.captureProgressDecayPerS;
         this.captureForceChangeMinS = builder.captureForceChangeMinS;
@@ -799,8 +815,10 @@ public final class GameConfig {
         private double lureDurationS = 8.0;
         private double lureSpeedMps = 1.5;
         private double captureDistanceM = 4.0;
-        private double captureRequiredSeconds = 5.0;
-        private double captureAngleToleranceDeg = 12.0;
+        // Alias de BEAM_BASE_* : une surcharge explicite n'est acceptée que si
+        // elle est égale à la valeur de base (Q4/A4).
+        private Double captureRequiredSecondsOverride = null;
+        private Double captureAngleToleranceDegOverride = null;
         private double captureTimeoutS = 30.0;
         private double captureProgressDecayPerS = 0.0;
         private double captureForceChangeMinS = 0.5;
@@ -1106,14 +1124,29 @@ public final class GameConfig {
             return this;
         }
 
+        /**
+         * Alias de {@link #setBeamBaseRequiredSeconds(double)} conservé pour
+         * compatibilité ; la valeur doit rester égale à la base du faisceau.
+         */
         public Builder setCaptureRequiredSeconds(double captureRequiredSeconds) {
-            this.captureRequiredSeconds = captureRequiredSeconds;
+            this.captureRequiredSecondsOverride = captureRequiredSeconds;
             return this;
         }
 
+        /** Alias de {@link #setBeamBaseAngleToleranceDeg(double)}, voir Q4. */
         public Builder setCaptureAngleToleranceDeg(double captureAngleToleranceDeg) {
-            this.captureAngleToleranceDeg = captureAngleToleranceDeg;
+            this.captureAngleToleranceDegOverride = captureAngleToleranceDeg;
             return this;
+        }
+
+        private double captureRequiredSeconds() {
+            return captureRequiredSecondsOverride != null
+                    ? captureRequiredSecondsOverride : beamBaseRequiredSeconds;
+        }
+
+        private double captureAngleToleranceDeg() {
+            return captureAngleToleranceDegOverride != null
+                    ? captureAngleToleranceDegOverride : beamBaseAngleToleranceDeg;
         }
 
         public Builder setCaptureTimeoutS(double captureTimeoutS) {
@@ -1446,7 +1479,159 @@ public final class GameConfig {
             return this;
         }
 
+        /**
+         * Vérifie tous les invariants de configuration avant construction.
+         *
+         * <p>Les erreurs sont levées ici, à la source, plutôt que loin dans un
+         * consommateur : toute surcharge invalide (NaN, infini, valeur
+         * négative, plage inversée, dépendance nulle) est refusée avec un
+         * message nommant le champ.</p>
+         */
+        private void validate() {
+            // Géométrie, GPS et cartographie.
+            Validation.requirePositiveFinite("earthRadiusM", earthRadiusM);
+            Validation.requirePositiveInt("minPolygonVertices", minPolygonVertices);
+            if (minPolygonVertices < 3) {
+                throw new IllegalArgumentException("minPolygonVertices must be at least 3");
+            }
+            Validation.requirePositiveFinite("minVertexDistanceM", minVertexDistanceM);
+            Validation.requirePositiveFinite("gpsAccuracyMaxM", gpsAccuracyMaxM);
+            Validation.requirePositiveInt("gpsUpdateIntervalMs", gpsUpdateIntervalMs);
+            Validation.requireNonNegativeFinite("gpsMinDistanceM", gpsMinDistanceM);
+            Validation.requirePositiveFinite("cartographySampleDistanceM", cartographySampleDistanceM);
+            Validation.requirePositiveInt("cartographySampleIntervalMs", cartographySampleIntervalMs);
+            Validation.requireNonNegativeFinite("douglasPeuckerToleranceM", douglasPeuckerToleranceM);
+            Validation.requireNonNull("mapProjection", mapProjection);
+
+            // Caméra, boussole, bruit et tilt.
+            Validation.requireRange("cameraBlueFilterAlpha", cameraBlueFilterAlpha, 0.0, 1.0);
+            Validation.requirePositiveInt("cameraGlitchDurationMs", cameraGlitchDurationMs);
+            Validation.requireRange("compassLowPassAlpha", compassLowPassAlpha, 0.0, 1.0);
+            Validation.requirePositiveInt("noiseWindowMs", noiseWindowMs);
+            Validation.requireRange("noiseSmoothingAlpha", noiseSmoothingAlpha, 0.0, 1.0);
+            Validation.requireFinite("noiseThresholdDbfs", noiseThresholdDbfs);
+            Validation.requireNonNegativeFinite("noiseHysteresisS", noiseHysteresisS);
+            Validation.requireNonNegativeFinite("noiseAlertHoldS", noiseAlertHoldS);
+            Validation.requireFinite("noiseGaugeMinDbfs", noiseGaugeMinDbfs);
+            Validation.requireFinite("noiseGaugeMaxDbfs", noiseGaugeMaxDbfs);
+            if (noiseGaugeMinDbfs > noiseGaugeMaxDbfs) {
+                throw new IllegalArgumentException("noiseGaugeMaxDbfs must be >= noiseGaugeMinDbfs");
+            }
+            Validation.requireNonNegativeFinite("tiltDeadzoneDeg", tiltDeadzoneDeg);
+            // Un gain nul est une valeur limite légitime (sortie tilt nulle),
+            // déjà couverte par TiltCalculatorTest ; seuls NaN/infinis et les
+            // négatifs sont refusés.
+            Validation.requireNonNegativeFinite("tiltGain", tiltGain);
+            Validation.requirePositiveFinite("tiltClampDeg", tiltClampDeg);
+            Validation.requirePositiveFinite("accelSamplingHz", accelSamplingHz);
+
+            // Boucle, zones et déplacements.
+            Validation.requirePositiveInt("tickMs", tickMs);
+            Validation.requireRange("zoneTriggerProbabilityPerS", zoneTriggerProbabilityPerS, 0.0, 1.0);
+            Validation.requireNonNegativeFinite("zoneTriggerCooldownS", zoneTriggerCooldownS);
+            if (zonePolygonMinVertices < 3) {
+                throw new IllegalArgumentException("zonePolygonMinVertices must be at least 3");
+            }
+            Validation.requirePositiveInt("zonePolygonMaxVertices", zonePolygonMaxVertices);
+            if (zonePolygonMaxVertices < zonePolygonMinVertices) {
+                throw new IllegalArgumentException("zonePolygonMaxVertices must be >= zonePolygonMinVertices");
+            }
+            Validation.requirePositiveFinite("zoneRadiusMinM", zoneRadiusMinM);
+            Validation.requirePositiveFinite("zoneRadiusMaxM", zoneRadiusMaxM);
+            if (zoneRadiusMaxM < zoneRadiusMinM) {
+                throw new IllegalArgumentException("zoneRadiusMaxM must be >= zoneRadiusMinM");
+            }
+            Validation.requirePositiveFinite("adminZoneDefaultRadiusM", adminZoneDefaultRadiusM);
+            Validation.requirePositiveFinite("ghostSpawnMinDistanceM", ghostSpawnMinDistanceM);
+            Validation.requirePositiveFinite("ghostSpawnMaxDistanceM", ghostSpawnMaxDistanceM);
+            if (ghostSpawnMaxDistanceM < ghostSpawnMinDistanceM) {
+                throw new IllegalArgumentException("ghostSpawnMaxDistanceM must be >= ghostSpawnMinDistanceM");
+            }
+            Validation.requirePositiveFinite("ghostBaseSpeedMps", ghostBaseSpeedMps);
+            Validation.requirePositiveFinite("ghostFleeMultiplier", ghostFleeMultiplier);
+            Validation.requirePositiveFinite("mineTriggerRadiusM", mineTriggerRadiusM);
+            Validation.requirePositiveFinite("mineStunDurationS", mineStunDurationS);
+            Validation.requirePositiveInt("mineMaxActive", mineMaxActive);
+            Validation.requirePositiveFinite("mineMinDistanceM", mineMinDistanceM);
+            Validation.requirePositiveFinite("lureDurationS", lureDurationS);
+            Validation.requirePositiveFinite("lureSpeedMps", lureSpeedMps);
+            Validation.requirePositiveFinite("captureDistanceM", captureDistanceM);
+            Validation.requirePositiveFinite("beamBaseRequiredSeconds", beamBaseRequiredSeconds);
+            Validation.requirePositiveFinite("beamBaseAngleToleranceDeg",
+                    beamBaseAngleToleranceDeg);
+            if (captureRequiredSecondsOverride != null) {
+                Validation.requirePositiveFinite("captureRequiredSeconds",
+                        captureRequiredSecondsOverride);
+                Validation.requireSameValue("captureRequiredSeconds",
+                        beamBaseRequiredSeconds, captureRequiredSecondsOverride);
+            }
+            if (captureAngleToleranceDegOverride != null) {
+                Validation.requirePositiveFinite("captureAngleToleranceDeg",
+                        captureAngleToleranceDegOverride);
+                Validation.requireSameValue("captureAngleToleranceDeg",
+                        beamBaseAngleToleranceDeg, captureAngleToleranceDegOverride);
+            }
+            double effectiveCaptureRequiredSeconds = captureRequiredSeconds();
+            Validation.requirePositiveFinite("captureTimeoutS", captureTimeoutS);
+            if (effectiveCaptureRequiredSeconds > captureTimeoutS) {
+                throw new IllegalArgumentException("captureRequiredSeconds must be <= captureTimeoutS");
+            }
+            Validation.requireNonNegativeFinite("captureProgressDecayPerS", captureProgressDecayPerS);
+            Validation.requirePositiveFinite("captureForceChangeMinS", captureForceChangeMinS);
+            Validation.requirePositiveFinite("captureForceChangeMaxS", captureForceChangeMaxS);
+            if (captureForceChangeMaxS < captureForceChangeMinS) {
+                throw new IllegalArgumentException("captureForceChangeMaxS must be >= captureForceChangeMinS");
+            }
+            Validation.requirePositiveFinite("captureForceAmplitudeDeg", captureForceAmplitudeDeg);
+            Validation.requireNonNegativeFinite("screamerDelayMinS", screamerDelayMinS);
+            Validation.requireNonNegativeFinite("screamerDelayMaxS", screamerDelayMaxS);
+            if (screamerDelayMaxS < screamerDelayMinS) {
+                throw new IllegalArgumentException("screamerDelayMaxS must be >= screamerDelayMinS");
+            }
+            Validation.requirePositiveFinite("screamerDurationS", screamerDurationS);
+
+            // Progression et faisceau.
+            Validation.requireNonNegativeInt("startingMineCount", startingMineCount);
+            Validation.requireNonNegativeInt("startingLureCount", startingLureCount);
+            Validation.requireNonNegativeInt("lootboxPerCapture", lootboxPerCapture);
+            Validation.requireNonNegativeFinite("lootMineWeight", lootMineWeight);
+            Validation.requireNonNegativeFinite("lootLureWeight", lootLureWeight);
+            Validation.requireNonNegativeFinite("lootBeamWeight", lootBeamWeight);
+            Validation.requireNonNegativeInt("pityMissesBeforeGuarantee", pityMissesBeforeGuarantee);
+            Validation.requireNonNull("pityGuaranteeType", pityGuaranteeType);
+            Validation.requirePositiveInt("beamMaxLevel", beamMaxLevel);
+            Validation.requirePositiveFinite("beamBaseRequiredSeconds", beamBaseRequiredSeconds);
+            Validation.requireNonNegativeFinite("beamTimeReductionPerLevelS", beamTimeReductionPerLevelS);
+            Validation.requirePositiveFinite("beamMinRequiredSeconds", beamMinRequiredSeconds);
+            if (beamMinRequiredSeconds > beamBaseRequiredSeconds) {
+                throw new IllegalArgumentException("beamMinRequiredSeconds must be <= beamBaseRequiredSeconds");
+            }
+            Validation.requirePositiveFinite("beamBaseAngleToleranceDeg", beamBaseAngleToleranceDeg);
+            Validation.requireNonNegativeFinite("beamAngleToleranceStepDeg", beamAngleToleranceStepDeg);
+            Validation.requirePositiveInt("beamLevelsPerToleranceStep", beamLevelsPerToleranceStep);
+            Validation.requirePositiveInt("identityCount", identityCount);
+            Validation.requirePositiveFinite("identificationFreqMinHz", identificationFreqMinHz);
+            Validation.requirePositiveFinite("identificationFreqMaxHz", identificationFreqMaxHz);
+            if (identificationFreqMaxHz < identificationFreqMinHz) {
+                throw new IllegalArgumentException("identificationFreqMaxHz must be >= identificationFreqMinHz");
+            }
+            Validation.requireNonNegativeFinite("identificationToleranceHz", identificationToleranceHz);
+            Validation.requirePositiveInt("identificationAttempts", identificationAttempts);
+
+            // V2, interface et radar.
+            Validation.requirePositiveFinite("pressurePerFloorHpa", pressurePerFloorHpa);
+            Validation.requireNonNegativeFinite("floorHysteresisHpa", floorHysteresisHpa);
+            Validation.requireNonNegativeFinite("barometerCalibrationS", barometerCalibrationS);
+            Validation.requirePositiveFinite("radarRangeM", radarRangeM);
+            Validation.requireNonNull("radarOrientation", radarOrientation);
+            Validation.requireNonNull("radarVisibleStates", radarVisibleStates);
+            Validation.requireNonNull("uiLanguage", uiLanguage);
+            Validation.requireNonNull("orientation", orientation);
+            Validation.requireNonNull("soundSource", soundSource);
+        }
+
         public GameConfig build() {
+            validate();
             return new GameConfig(this);
         }
     }

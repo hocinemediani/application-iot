@@ -1,5 +1,6 @@
 package com.example.ghostradar.domain.game;
 
+import com.example.ghostradar.domain.Validation;
 import com.example.ghostradar.domain.config.GameConfig;
 import com.example.ghostradar.domain.geo.GeoMath;
 import com.example.ghostradar.domain.geo.HauntedZone;
@@ -36,6 +37,8 @@ public final class GhostSpawner {
         if (random == null) {
             throw new IllegalArgumentException("random must not be null");
         }
+        Validation.requireSameRadius("earthRadiusM (config/playArea)",
+                config.getEarthRadiusM(), playArea.getEarthRadiusM());
         this.config = config;
         this.playArea = playArea;
         this.random = random;
@@ -53,7 +56,12 @@ public final class GhostSpawner {
      * @param zone           zone hantée concernée
      * @param deltaSeconds   durée écoulée depuis le tick précédent, en secondes
      * @param maxAttempts    nombre maximal de points échantillonnés pour le
-     *                       fallback
+     *                       fallback. Budget d'algorithme passé par l'appelant
+     *                       et volontairement absent de {@link GameConfig} :
+     *                       il ne modifie pas les règles de jeu, seulement le
+     *                       coût et le taux d'échec de la génération. S'il est
+     *                       épuisé sans point valide, le résultat est vide
+     *                       (y compris pour {@code maxAttempts = 1}).
      */
     public Optional<LatLon> trySpawn(LatLon playerPosition, HauntedZone zone,
                                      double deltaSeconds, int maxAttempts) {
@@ -63,9 +71,9 @@ public final class GhostSpawner {
         if (zone == null) {
             throw new IllegalArgumentException("zone must not be null");
         }
-        if (deltaSeconds < 0.0) {
-            throw new IllegalArgumentException("deltaSeconds must not be negative");
-        }
+        Validation.requireSameRadius("earthRadiusM (config/zone)",
+                config.getEarthRadiusM(), zone.getEarthRadiusM());
+        Validation.requireDeltaSeconds(deltaSeconds);
         if (maxAttempts <= 0) {
             throw new IllegalArgumentException("maxAttempts must be positive");
         }
@@ -87,13 +95,20 @@ public final class GhostSpawner {
     }
 
     /**
-     * Apparition forcée en mode admin : le point fourni est renvoyé tel quel,
-     * sans vérification de zone, de probabilité, de zone jouable ni
-     * d'obstacle.
+     * Apparition forcée en mode admin.
+     *
+     * <p>Seules les zones hantées et la probabilité de déclenchement sont
+     * ignorées (Q6) : le point doit rester dans la zone jouable et hors
+     * obstacles, comme pour un spawn normal. Un point invalide est refusé
+     * explicitement avec {@link IllegalArgumentException}.</p>
      */
     public LatLon spawnAdmin(LatLon mapPoint) {
         if (mapPoint == null) {
             throw new IllegalArgumentException("mapPoint must not be null");
+        }
+        if (!playArea.contains(mapPoint)) {
+            throw new IllegalArgumentException("mapPoint must be inside the play area "
+                    + "and outside obstacles");
         }
         return mapPoint;
     }

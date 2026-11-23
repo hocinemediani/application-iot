@@ -1,5 +1,7 @@
 package com.example.ghostradar.domain.geo;
 
+import com.example.ghostradar.domain.Validation;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -8,11 +10,19 @@ import java.util.List;
  * Polygone géographique fermé, validé à la construction.
  *
  * <p>Les seuils de validation sont fournis par l'appelant afin de rester
- * alignés sur les constantes configurables de {@code GameConfig}.</p>
+ * alignés sur les constantes configurables de {@code GameConfig}. Sont rejetés
+ * : les sommets trop proches, les auto-intersections et les polygones
+ * dégénérés (tous les sommets colinéaires, donc d'aire nulle). Toutes les
+ * méthodes interrogeant un point lèvent {@link IllegalArgumentException} pour
+ * un argument {@code null}, comme le reste du domaine.</p>
  */
 public final class GeoPolygon {
 
-    private static final double ORIENTATION_EPSILON = 1e-12;
+    /**
+     * Seuil d'alignement en degrés², partagé avec {@link PlayArea} pour la
+     * validation de la topologie des obstacles.
+     */
+    static final double ORIENTATION_EPSILON = 1e-12;
 
     private final List<LatLon> vertices;
     private final double earthRadiusM;
@@ -28,9 +38,8 @@ public final class GeoPolygon {
         if (vertices.size() < minVertices) {
             throw new IllegalArgumentException("A polygon needs at least " + minVertices + " vertices");
         }
-        if (earthRadiusM <= 0.0) {
-            throw new IllegalArgumentException("earthRadiusM must be positive");
-        }
+        Validation.requirePositiveFinite("earthRadiusM", earthRadiusM);
+        Validation.requirePositiveFinite("minVertexDistanceM", minVertexDistanceM);
 
         List<LatLon> copy = new ArrayList<>(vertices.size());
         for (LatLon vertex : vertices) {
@@ -42,6 +51,7 @@ public final class GeoPolygon {
 
         validateNoDuplicateVertices(copy, minVertexDistanceM, earthRadiusM);
         validateNoSelfIntersection(copy);
+        validateNonDegenerate(copy);
 
         this.vertices = Collections.unmodifiableList(copy);
         this.earthRadiusM = earthRadiusM;
@@ -56,6 +66,7 @@ public final class GeoPolygon {
     }
 
     public boolean contains(LatLon point) {
+        Validation.requireNonNull("point", point);
         return GeoMath.pointInPolygon(point, vertices);
     }
 
@@ -63,6 +74,7 @@ public final class GeoPolygon {
      * Sommet le plus proche du point demandé.
      */
     public LatLon nearestVertex(LatLon point) {
+        Validation.requireNonNull("point", point);
         LatLon nearest = vertices.get(0);
         double bestDistance = Double.MAX_VALUE;
 
@@ -81,6 +93,7 @@ public final class GeoPolygon {
      * Point du contour le plus proche du point demandé.
      */
     public LatLon closestPointOnBoundary(LatLon point) {
+        Validation.requireNonNull("point", point);
         LatLon closest = vertices.get(0);
         double bestDistance = Double.MAX_VALUE;
 
@@ -156,7 +169,28 @@ public final class GeoPolygon {
         }
     }
 
-    private static boolean segmentsIntersect(LatLon a, LatLon b, LatLon c, LatLon d) {
+    /**
+     * Rejette les polygones dont tous les sommets sont alignés : leur aire est
+     * nulle et {@link #contains(LatLon)} ne pourrait jamais renvoyer vrai.
+     *
+     * <p>Deux sommets quelconques A et B sont distincts (garanti par le
+     * contrôle des doublons), donc il suffit de vérifier que chaque autre
+     * sommet est aligné avec eux. Le seuil est le même que celui des tests
+     * d'intersection, exprimé en degrés².</p>
+     */
+    private static void validateNonDegenerate(List<LatLon> vertices) {
+        LatLon a = vertices.get(0);
+        LatLon b = vertices.get(1);
+        for (int i = 2; i < vertices.size(); i++) {
+            if (Math.abs(orientation(a, b, vertices.get(i))) > ORIENTATION_EPSILON) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Polygon vertices are collinear (zero area)");
+    }
+
+    /** Intersection de deux segments, contact compris (réutilisé par {@link PlayArea}). */
+    static boolean segmentsIntersect(LatLon a, LatLon b, LatLon c, LatLon d) {
         double o1 = orientation(a, b, c);
         double o2 = orientation(a, b, d);
         double o3 = orientation(c, d, a);
@@ -181,12 +215,13 @@ public final class GeoPolygon {
                 || (o3 < -ORIENTATION_EPSILON && o4 > ORIENTATION_EPSILON));
     }
 
-    private static double orientation(LatLon a, LatLon b, LatLon c) {
+    /** Orientation de trois points en degrés² (réutilisé par {@link PlayArea}). */
+    static double orientation(LatLon a, LatLon b, LatLon c) {
         return (b.getLongitude() - a.getLongitude()) * (c.getLatitude() - a.getLatitude())
                 - (b.getLatitude() - a.getLatitude()) * (c.getLongitude() - a.getLongitude());
     }
 
-    private static boolean onSegment(LatLon a, LatLon b, LatLon point) {
+    static boolean onSegment(LatLon a, LatLon b, LatLon point) {
         double minLon = Math.min(a.getLongitude(), b.getLongitude());
         double maxLon = Math.max(a.getLongitude(), b.getLongitude());
         double minLat = Math.min(a.getLatitude(), b.getLatitude());

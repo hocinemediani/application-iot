@@ -12,9 +12,18 @@ import java.util.Objects;
  * pour l'affichage {@code Canvas}.</p>
  *
  * <p>L'approximation équirectangulaire locale est adaptée à une zone de jeu de
- * quelques centaines de mètres et reste indépendante d'Android.</p>
+ * quelques centaines de mètres et reste indépendante d'Android. Elle ne
+ * supporte ni l'antiméridien (étendue en longitude > 180°) ni les pôles
+ * ({@code |latitude d'origine| < 80°} requis) : ces deux cas sont refusés à la
+ * construction. Les coordonnées arrivant à {@link #project} sont garanties
+ * finies par {@link LatLon}, qui valide ses valeurs à la construction.</p>
  */
 public final class MapProjection {
+
+    /** Limite de validité de l'approximation équirectangulaire locale. */
+    private static final double MAX_ABSOLUTE_ORIGIN_LATITUDE_DEG = 80.0;
+    /** Au-delà, le centre naïf d'une boîte englobante en longitude est faux. */
+    private static final double MAX_LONGITUDE_SPAN_DEG = 180.0;
 
     private final LatLon origin;
     private final double earthRadiusM;
@@ -23,7 +32,9 @@ public final class MapProjection {
     /**
      * Construit une projection centrée sur la zone jouable.
      *
-     * @throws IllegalArgumentException si {@code playArea} est nul
+     * @throws IllegalArgumentException si {@code playArea} est nul, si
+     *         l'origine est à une latitude de 80° ou plus, ou si le polygone
+     *         extérieur traverse l'antiméridien
      */
     public MapProjection(PlayArea playArea) {
         if (playArea == null) {
@@ -31,6 +42,11 @@ public final class MapProjection {
         }
         this.earthRadiusM = playArea.getEarthRadiusM();
         this.origin = boundingBoxCenter(playArea.getOuterPolygon());
+        if (Math.abs(origin.getLatitude()) >= MAX_ABSOLUTE_ORIGIN_LATITUDE_DEG) {
+            throw new IllegalArgumentException("Origin latitude must be below "
+                    + MAX_ABSOLUTE_ORIGIN_LATITUDE_DEG + "° in absolute value, got "
+                    + origin.getLatitude());
+        }
         this.cosOriginLatitudeRad = Math.cos(Math.toRadians(origin.getLatitude()));
     }
 
@@ -40,6 +56,9 @@ public final class MapProjection {
 
     /**
      * Projette une position géographique en mètres ENU.
+     *
+     * <p>La finitude des coordonnées est garantie par {@link LatLon} : aucun
+     * {@code LatLon} NaN ou infini ne peut être construit.</p>
      *
      * @throws IllegalArgumentException si {@code position} est nul
      */
@@ -84,6 +103,11 @@ public final class MapProjection {
             maxLongitude = Math.max(maxLongitude, vertex.getLongitude());
         }
 
+        if (maxLongitude - minLongitude > MAX_LONGITUDE_SPAN_DEG) {
+            throw new IllegalArgumentException("Outer polygon crosses the antimeridian: "
+                    + "longitude span " + (maxLongitude - minLongitude) + "° > "
+                    + MAX_LONGITUDE_SPAN_DEG + "°");
+        }
         return new LatLon((minLatitude + maxLatitude) / 2.0,
                 (minLongitude + maxLongitude) / 2.0);
     }

@@ -16,12 +16,14 @@ public class FloorProviderTest {
     }
 
     @Test
-    public void defaultImplementationIgnoresFloorAndPressure() {
+    public void defaultImplementationIgnoresPressureAndReturnsGroundFloor() {
+        // B8 : GameInput garantit déjà floor == 0 en V1 ; le provider reste
+        // indépendant de la pression (utilisée seulement en V2).
         FloorProvider provider = new FloorProvider() {
         };
 
-        assertEquals(0, provider.getFloor(new GameInput(3, 1013.25)));
-        assertEquals(0, provider.getFloor(new GameInput(-2, 900.0)));
+        assertEquals(0, provider.getFloor(new GameInput(0, 1013.25)));
+        assertEquals(0, provider.getFloor(new GameInput(0, 900.0)));
     }
 
     @Test
@@ -29,7 +31,7 @@ public class FloorProviderTest {
         FloorProvider provider = new FloorProvider() {
         };
 
-        assertEquals(0, provider.getFloor(new GameInput(1, null)));
+        assertEquals(0, provider.getFloor(new GameInput(0, null)));
     }
 
     @Test
